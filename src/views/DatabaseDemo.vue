@@ -1,6 +1,7 @@
 <script setup lang="ts">
-import { ref, onMounted } from 'vue'
+import { ref, onMounted, toRaw } from 'vue'
 import { ElMessage } from 'element-plus'
+import { RefreshRight } from '@element-plus/icons-vue'
 import type { Room } from '../../electron/main/database/types'
 
 const rooms = ref<Room[]>([])
@@ -36,7 +37,8 @@ const createRoom = async () => {
   }
 
   try {
-    const newRoom = await window.electronAPI.db.rooms.create(roomForm.value)
+    const payload = { ...toRaw(roomForm.value) }
+    const newRoom = await window.electronAPI.db.rooms.create(payload)
     ElMessage.success(`房间 "${newRoom.name}" 创建成功`)
     roomForm.value = { name: '', type: 'mahjong', hourlyRate: 0, status: 'available' }
     await loadRooms()

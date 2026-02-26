@@ -6,6 +6,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
+    "postinstall": "electron-builder install-app-deps",
+    "rebuild:native": "electron-builder install-app-deps",
     "build": "vue-tsc --noEmit && vite build && electron-builder",
     "build:win": "npm run build -- --win",
     "build:mac": "npm run build -- --mac",

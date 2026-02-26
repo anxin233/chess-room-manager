@@ -87,6 +87,10 @@ chess-room-manager/
 
 ## 开发指南
 
+### 已知问题
+
+- 运行 `npm run type-check` 时，项目当前仍存在既有的 TypeScript 报错；这些报错与本次 IPC 对象克隆（`An object could not be cloned`）修复无关。
+
 ### 添加新的数据库操作
 
 1. 在 `electron/main/database/services.ts` 中添加服务函数

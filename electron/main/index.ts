@@ -72,10 +72,14 @@ const createWindow = () => {
 app.whenReady().then(() => {
   // 初始化数据库
   try {
+    console.log('Starting database initialization...')
     initDatabase()
     console.log('Database initialized at:', getDatabasePath())
   } catch (error) {
     console.error('Failed to initialize database:', error)
+    console.error('Error stack:', error instanceof Error ? error.stack : 'No stack trace')
+    app.quit()
+    return
   }
 
   createWindow()

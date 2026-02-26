@@ -1,9 +1,13 @@
-import Database from 'better-sqlite3'
 import { app } from 'electron'
 import { join } from 'path'
 import { existsSync, mkdirSync } from 'fs'
+import { createRequire } from 'module'
 
-let db: Database.Database | null = null
+// 使用 createRequire 来加载原生模块
+const require = createRequire(import.meta.url)
+const Database = require('better-sqlite3')
+
+let db: any = null
 
 // 获取数据库路径
 export function getDatabasePath(): string {
@@ -19,26 +23,45 @@ export function getDatabasePath(): string {
 }
 
 // 初始化数据库
-export function initDatabase(): Database.Database {
+export function initDatabase() {
+  console.log('[DB] initDatabase called, db is:', db ? 'already initialized' : 'null')
+
   if (db) {
     return db
   }
 
-  const dbPath = getDatabasePath()
-  console.log('Database path:', dbPath)
+  try {
+    const dbPath = getDatabasePath()
+    console.log('[DB] Database path:', dbPath)
 
-  db = new Database(dbPath)
-  db.pragma('journal_mode = WAL') // 启用 WAL 模式提升性能
+    console.log('[DB] Creating database instance...')
+    db = new Database(dbPath)
+    console.log('[DB] Database instance created')
 
-  // 创建表
-  createTables()
+    db.pragma('journal_mode = WAL') // 启用 WAL 模式提升性能
+    console.log('[DB] WAL mode enabled')
 
-  console.log('Database initialized successfully')
-  return db
+    // 创建表
+    console.log('[DB] Creating tables...')
+    createTables()
+    console.log('[DB] Tables created')
+
+    console.log('[DB] Database initialized successfully')
+    return db
+  } catch (error) {
+    console.error('[DB] Error during initialization:', error)
+    throw error
+  }
 }
 
 // 获取数据库实例
 export function getDatabase(): Database.Database {
+  if (!db) {
+    if (!app.isReady()) {
+      throw new Error('Database not initialized: app is not ready')
+    }
+    initDatabase()
+  }
   if (!db) {
     throw new Error('Database not initialized')
   }
