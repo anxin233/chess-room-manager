@@ -1,7 +1,7 @@
 {
   "name": "chess-room-manager",
   "version": "0.1.0",
-  "description": "棋牌室管理系统 - 基于 Electron + Vite + Vue 3",
+  "description": "棋牌室管理系统",
   "main": "dist-electron/main/index.js",
   "type": "module",
   "scripts": {
@@ -15,11 +15,15 @@
     "type-check": "vue-tsc --noEmit"
   },
   "dependencies": {
+    "@element-plus/icons-vue": "^2.3.2",
+    "better-sqlite3": "^12.6.2",
+    "element-plus": "^2.13.2",
+    "pinia": "^2.3.0",
     "vue": "^3.5.0",
-    "vue-router": "^4.5.0",
-    "pinia": "^2.3.0"
+    "vue-router": "^4.5.0"
   },
   "devDependencies": {
+    "@types/better-sqlite3": "^7.6.13",
     "@vitejs/plugin-vue": "^5.2.0",
     "electron": "^33.2.0",
     "electron-builder": "^25.1.8",
@@ -40,13 +44,19 @@
       "dist-electron"
     ],
     "win": {
-      "target": ["nsis"]
+      "target": [
+        "nsis"
+      ]
     },
     "mac": {
-      "target": ["dmg"]
+      "target": [
+        "dmg"
+      ]
     },
     "linux": {
-      "target": ["AppImage"]
+      "target": [
+        "AppImage"
+      ]
     }
   }
 }

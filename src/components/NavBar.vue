@@ -6,6 +6,7 @@ const route = useRoute()
 
 const navItems = [
   { name: 'Home', path: '/', label: '首页', icon: '🏠' },
+  { name: 'DatabaseDemo', path: '/database-demo', label: '数据库测试', icon: '💾' },
   { name: 'About', path: '/about', label: '关于', icon: 'ℹ️' },
   { name: 'Settings', path: '/settings', label: '设置', icon: '⚙️' }
 ]
@@ -18,8 +19,8 @@ const isActive = (path: string) => {
 <template>
   <nav class="navbar">
     <div class="nav-brand">
-      <span class="logo">⚡</span>
-      <span class="brand-name">Electron App</span>
+      <span class="logo">🎮</span>
+      <span class="brand-name">棋牌室管理系统</span>
     </div>
     <div class="nav-links">
       <RouterLink

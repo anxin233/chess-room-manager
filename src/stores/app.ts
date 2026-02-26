@@ -34,19 +34,22 @@ export const useAppStore = defineStore('app', () => {
 
   // 初始化应用信息
   const initAppInfo = async () => {
-    if (window.electronAPI) {
-      try {
-        setLoading(true)
-        const [version, path] = await Promise.all([
-          window.electronAPI.getAppVersion(),
-          window.electronAPI.getAppPath()
-        ])
-        setAppInfo(version, path)
-      } catch (error) {
-        console.error('获取应用信息失败:', error)
-      } finally {
-        setLoading(false)
-      }
+    if (!window.electronAPI) {
+      console.warn('Electron API 不可用，可能在浏览器环境中运行')
+      return
+    }
+
+    try {
+      setLoading(true)
+      const [version, path] = await Promise.all([
+        window.electronAPI.getAppVersion(),
+        window.electronAPI.getAppPath()
+      ])
+      setAppInfo(version, path)
+    } catch (error) {
+      console.error('获取应用信息失败:', error)
+    } finally {
+      setLoading(false)
     }
   }
 

@@ -11,6 +11,14 @@ const routes: RouteRecordRaw[] = [
     }
   },
   {
+    path: '/database-demo',
+    name: 'DatabaseDemo',
+    component: () => import('@/views/DatabaseDemo.vue'),
+    meta: {
+      title: '数据库测试'
+    }
+  },
+  {
     path: '/about',
     name: 'About',
     component: () => import('@/views/About.vue'),
@@ -45,7 +53,7 @@ const router = createRouter({
 // 路由守卫：设置页面标题
 router.beforeEach((to, from, next) => {
   if (to.meta.title) {
-    document.title = `${to.meta.title} - Electron App`
+    document.title = `${to.meta.title} - 棋牌室管理系统`
   }
   next()
 })
