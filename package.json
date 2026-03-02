@@ -46,16 +46,19 @@
       "dist-electron"
     ],
     "win": {
+      "icon": "build/icon.ico",
       "target": [
         "nsis"
       ]
     },
     "mac": {
+      "icon": "build/icon.icns",
       "target": [
         "dmg"
       ]
     },
     "linux": {
+      "icon": "build/icon.png",
       "target": [
         "AppImage"
       ]

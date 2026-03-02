@@ -1,7 +1,7 @@
-import { app, BrowserWindow, ipcMain } from 'electron'
+import { app, BrowserWindow, ipcMain, dialog, nativeImage, protocol, net } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { existsSync } from 'fs'
+import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'fs'
 import { initDatabase, closeDatabase, getDatabasePath } from './database/index'
 import * as dbServices from './database/services'
 
@@ -25,12 +25,22 @@ const createWindow = () => {
     console.error('✗ Preload script file NOT found!')
   }
 
+  // 设置窗口图标
+  const iconPath = process.env.VITE_DEV_SERVER_URL
+    ? join(__dirname, '../../build/icon.ico')  // 开发环境: dist-electron/main -> build
+    : join(process.resourcesPath, 'build/icon.ico')  // 生产环境
+
+  console.log('Icon path:', iconPath)
+  console.log('Icon exists:', existsSync(iconPath))
+
   mainWindow = new BrowserWindow({
     width: 1200,
     height: 800,
     minWidth: 800,
     minHeight: 600,
     show: false,
+    autoHideMenuBar: true, // 隐藏菜单栏
+    icon: iconPath,
     webPreferences: {
       preload: preloadPath,
       nodeIntegration: false,
@@ -70,6 +80,19 @@ const createWindow = () => {
 
 // 应用准备就绪
 app.whenReady().then(() => {
+  // 注册自定义协议来处理图片
+  protocol.handle('app', (request) => {
+    const url = request.url.slice('app://'.length)
+    const userDataPath = app.getPath('userData')
+    const filePath = join(userDataPath, url)
+
+    if (!existsSync(filePath)) {
+      return new Response('File not found', { status: 404 })
+    }
+
+    return net.fetch(`file://${filePath}`)
+  })
+
   // 初始化数据库
   try {
     console.log('Starting database initialization...')
@@ -139,13 +162,104 @@ ipcMain.handle('db:orders:getByStatus', (_, status: string) => dbServices.getOrd
 ipcMain.handle('db:orders:create', (_, order) => dbServices.createOrder(order))
 ipcMain.handle('db:orders:update', (_, id: number, order) => dbServices.updateOrder(id, order))
 
+// 商品分类管理
+ipcMain.handle('db:productCategories:getAll', () => dbServices.getAllProductCategories())
+ipcMain.handle('db:productCategories:getById', (_, id: number) => dbServices.getProductCategoryById(id))
+ipcMain.handle('db:productCategories:create', (_, category) => dbServices.createProductCategory(category))
+ipcMain.handle('db:productCategories:update', (_, id: number, category) => dbServices.updateProductCategory(id, category))
+ipcMain.handle('db:productCategories:delete', (_, id: number) => dbServices.deleteProductCategory(id))
+
 // 商品管理
 ipcMain.handle('db:products:getAll', () => dbServices.getAllProducts())
 ipcMain.handle('db:products:getById', (_, id: number) => dbServices.getProductById(id))
+ipcMain.handle('db:products:getByCategoryId', (_, categoryId: number) => dbServices.getProductsByCategoryId(categoryId))
 ipcMain.handle('db:products:create', (_, product) => dbServices.createProduct(product))
 ipcMain.handle('db:products:update', (_, id: number, product) => dbServices.updateProduct(id, product))
 ipcMain.handle('db:products:delete', (_, id: number) => dbServices.deleteProduct(id))
 
+// 商品销售管理
+ipcMain.handle('db:productSales:create', (_, sale) => dbServices.createProductSale(sale))
+ipcMain.handle('db:productSales:getByOrderId', (_, orderId: number) => dbServices.getProductSalesByOrderId(orderId))
+ipcMain.handle('db:productSales:getAll', () => dbServices.getAllProductSales())
+ipcMain.handle('db:productSales:delete', (_, id: number) => dbServices.deleteProductSale(id))
+
 // 充值管理
 ipcMain.handle('db:recharges:create', (_, recharge) => dbServices.createRecharge(recharge))
 ipcMain.handle('db:recharges:getByMemberId', (_, memberId: number) => dbServices.getRechargesByMemberId(memberId))
+ipcMain.handle('db:recharges:getAll', () => dbServices.getAllRecharges())
+
+// 图片上传
+ipcMain.handle('upload-image', async () => {
+  const result = await dialog.showOpenDialog({
+    properties: ['openFile'],
+    filters: [
+      { name: 'Images', extensions: ['jpg', 'jpeg', 'png', 'gif', 'webp'] }
+    ]
+  })
+
+  if (result.canceled || result.filePaths.length === 0) {
+    return null
+  }
+
+  const sourcePath = result.filePaths[0]
+  const fileName = `product_${Date.now()}.jpg` // 统一保存为 jpg
+
+  // 保存到 userData/images 目录
+  const userDataPath = app.getPath('userData')
+  const imagesDir = join(userDataPath, 'images')
+
+  if (!existsSync(imagesDir)) {
+    mkdirSync(imagesDir, { recursive: true })
+  }
+
+  const destPath = join(imagesDir, fileName)
+
+  try {
+    // 使用 nativeImage 压缩图片
+    const image = nativeImage.createFromPath(sourcePath)
+    const size = image.getSize()
+
+    // 如果图片宽度或高度超过 800px，则缩放
+    const maxSize = 800
+    let resizedImage = image
+
+    if (size.width > maxSize || size.height > maxSize) {
+      const aspectRatio = size.width / size.height
+      let newWidth = size.width
+      let newHeight = size.height
+
+      if (size.width > size.height) {
+        newWidth = maxSize
+        newHeight = Math.round(maxSize / aspectRatio)
+      } else {
+        newHeight = maxSize
+        newWidth = Math.round(maxSize * aspectRatio)
+      }
+
+      resizedImage = image.resize({ width: newWidth, height: newHeight, quality: 'good' })
+    }
+
+    // 保存为 JPEG 格式，质量 80
+    const jpegBuffer = resizedImage.toJPEG(80)
+    writeFileSync(destPath, jpegBuffer)
+
+    console.log(`[Image] Saved compressed image: ${fileName}, original size: ${size.width}x${size.height}`)
+
+    // 返回相对路径
+    return `images/${fileName}`
+  } catch (error) {
+    console.error('[Image] Error processing image:', error)
+    // 如果压缩失败，直接复制原文件
+    copyFileSync(sourcePath, destPath)
+    return `images/${fileName}`
+  }
+})
+
+// 获取图片完整路径（保留用于兼容性，但不再使用）
+ipcMain.handle('get-image-path', (_, relativePath: string) => {
+  if (!relativePath) return null
+  // 返回自定义协议 URL
+  return `app://${relativePath}`
+})
+
+ipcMain.handle('db:members:getStats', (_, memberId: number) => dbServices.getMemberStats(memberId))

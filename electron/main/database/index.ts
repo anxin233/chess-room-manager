@@ -109,6 +109,7 @@ function createTables() {
       end_time TEXT,
       duration INTEGER,
       amount REAL NOT NULL,
+      prepaid_amount REAL NOT NULL DEFAULT 0,
       payment_method TEXT NOT NULL,
       status TEXT NOT NULL DEFAULT 'ongoing',
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
@@ -118,20 +119,126 @@ function createTables() {
     )
   `)
 
+  // 检查并添加 prepaid_amount 字段（兼容旧数据库）
+  const columns = db.prepare("PRAGMA table_info(orders)").all() as Array<{ name: string }>
+  const hasPrepaidAmount = columns.some(col => col.name === 'prepaid_amount')
+  if (!hasPrepaidAmount) {
+    db.exec(`ALTER TABLE orders ADD COLUMN prepaid_amount REAL NOT NULL DEFAULT 0`)
+    console.log('[DB] Added prepaid_amount column to orders table')
+  }
+
+  // 商品分类表
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS product_categories (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      name TEXT NOT NULL UNIQUE,
+      sort_order INTEGER NOT NULL DEFAULT 0,
+      created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+    )
+  `)
+
   // 商品表
   db.exec(`
     CREATE TABLE IF NOT EXISTS products (
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       name TEXT NOT NULL,
-      category TEXT NOT NULL,
+      category_id INTEGER NOT NULL,
       price REAL NOT NULL,
       stock INTEGER NOT NULL DEFAULT 0,
-      unit TEXT NOT NULL,
+      is_unlimited_stock INTEGER NOT NULL DEFAULT 0,
+      image_url TEXT,
       status TEXT NOT NULL DEFAULT 'available',
       created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
-      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime'))
+      updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+      FOREIGN KEY (category_id) REFERENCES product_categories(id)
     )
   `)
+
+  // 检查并迁移 products 表（从 category 到 category_id）
+  const productColumns = db.prepare("PRAGMA table_info(products)").all() as Array<{ name: string }>
+  const hasOldCategory = productColumns.some(col => col.name === 'category')
+  const hasCategoryId = productColumns.some(col => col.name === 'category_id')
+  const hasUnit = productColumns.some(col => col.name === 'unit')
+  const hasIsUnlimitedStock = productColumns.some(col => col.name === 'is_unlimited_stock')
+  const hasImageUrl = productColumns.some(col => col.name === 'image_url')
+
+  // 需要迁移的情况：有旧的 category 列，或者缺少新字段
+  const needsMigration = (hasOldCategory && !hasCategoryId) || hasUnit || !hasIsUnlimitedStock || !hasImageUrl
+
+  if (needsMigration) {
+    console.log('[DB] Migrating products table...')
+
+    // 1. 创建临时表
+    db.exec(`
+      CREATE TABLE products_new (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        name TEXT NOT NULL,
+        category_id INTEGER NOT NULL,
+        price REAL NOT NULL,
+        stock INTEGER NOT NULL DEFAULT 0,
+        is_unlimited_stock INTEGER NOT NULL DEFAULT 0,
+        image_url TEXT,
+        status TEXT NOT NULL DEFAULT 'available',
+        created_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        updated_at TEXT NOT NULL DEFAULT (datetime('now', 'localtime')),
+        FOREIGN KEY (category_id) REFERENCES product_categories(id)
+      )
+    `)
+
+    // 2. 获取所有旧商品数据
+    const oldProducts = db.prepare('SELECT * FROM products').all()
+
+    // 3. 如果有旧的 category 字段，为每个旧分类创建新分类记录
+    const categoryMap = new Map<string, number>()
+    if (hasOldCategory) {
+      for (const product of oldProducts) {
+        const categoryName = product.category || '未分类'
+        if (!categoryMap.has(categoryName)) {
+          const result = db.prepare(`
+            INSERT INTO product_categories (name, sort_order)
+            VALUES (?, ?)
+          `).run(categoryName, categoryMap.size)
+          categoryMap.set(categoryName, result.lastInsertRowid as number)
+        }
+      }
+    }
+
+    // 4. 迁移商品数据到新表
+    const insertStmt = db.prepare(`
+      INSERT INTO products_new (id, name, category_id, price, stock, is_unlimited_stock, image_url, status, created_at, updated_at)
+      VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    `)
+
+    for (const product of oldProducts) {
+      let categoryId: number
+      if (hasOldCategory) {
+        const categoryName = product.category || '未分类'
+        categoryId = categoryMap.get(categoryName)!
+      } else {
+        categoryId = product.category_id
+      }
+
+      insertStmt.run(
+        product.id,
+        product.name,
+        categoryId,
+        product.price,
+        product.stock || 0,
+        product.is_unlimited_stock || 0,
+        product.image_url || null,
+        product.status,
+        product.created_at,
+        product.updated_at
+      )
+    }
+
+    // 5. 删除旧表，重命名新表
+    db.exec('DROP TABLE products')
+    db.exec('ALTER TABLE products_new RENAME TO products')
+
+    console.log('[DB] Products table migration completed')
+  }
 
   // 商品销售记录表
   db.exec(`

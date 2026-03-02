@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
-import NavBar from './components/NavBar.vue'
+import Sidebar from './components/Sidebar.vue'
 import { useUserStore } from './stores/user'
 
 const userStore = useUserStore()
@@ -14,7 +14,7 @@ onMounted(() => {
 
 <template>
   <div class="app-container">
-    <NavBar />
+    <Sidebar />
     <main class="main-content">
       <RouterView />
     </main>
@@ -25,11 +25,11 @@ onMounted(() => {
 .app-container {
   min-height: 100vh;
   display: flex;
-  flex-direction: column;
 }
 
 .main-content {
   flex: 1;
   overflow-y: auto;
+  background: #f5f7fa;
 }
 </style>

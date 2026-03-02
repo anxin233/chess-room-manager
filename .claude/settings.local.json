@@ -2,7 +2,15 @@
   "permissions": {
     "allow": [
       "Bash(npm install element-plus @element-plus/icons-vue)",
-      "Bash(git add .)"
+      "Bash(git add .)",
+      "Bash(git commit:*)",
+      "Bash(gh --version)",
+      "Bash(gh auth status)",
+      "Bash(gh repo create chess-room-manager --public --source=. --description=\"棋牌室管理系统 - 基于 Electron + Vue 3 + SQLite 的桌面应用\" --push)",
+      "mcp__context7__query-docs",
+      "mcp__context7__resolve-library-id",
+      "Bash(npm run dev)",
+      "Bash(tasklist)"
     ]
   }
 }

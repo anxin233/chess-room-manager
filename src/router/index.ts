@@ -4,26 +4,46 @@ import type { RouteRecordRaw } from 'vue-router'
 const routes: RouteRecordRaw[] = [
   {
     path: '/',
-    name: 'Home',
-    component: () => import('@/views/Home.vue'),
+    redirect: '/hall'
+  },
+  {
+    path: '/hall',
+    name: 'Hall',
+    component: () => import('@/views/Hall.vue'),
     meta: {
-      title: '首页'
+      title: '营业大厅'
     }
   },
   {
-    path: '/database-demo',
-    name: 'DatabaseDemo',
-    component: () => import('@/views/DatabaseDemo.vue'),
+    path: '/rooms',
+    name: 'RoomManagement',
+    component: () => import('@/views/RoomManagement.vue'),
     meta: {
-      title: '数据库测试'
+      title: '房间管理'
     }
   },
   {
-    path: '/about',
-    name: 'About',
-    component: () => import('@/views/About.vue'),
+    path: '/members',
+    name: 'MemberManagement',
+    component: () => import('@/views/MemberManagement.vue'),
     meta: {
-      title: '关于'
+      title: '会员管理'
+    }
+  },
+  {
+    path: '/products',
+    name: 'ProductManagement',
+    component: () => import('@/views/ProductManagement.vue'),
+    meta: {
+      title: '商品管理'
+    }
+  },
+  {
+    path: '/statistics',
+    name: 'Statistics',
+    component: () => import('@/views/Statistics.vue'),
+    meta: {
+      title: '数据统计'
     }
   },
   {
@@ -31,7 +51,7 @@ const routes: RouteRecordRaw[] = [
     name: 'Settings',
     component: () => import('@/views/Settings.vue'),
     meta: {
-      title: '设置'
+      title: '系统设置'
     }
   },
   {
