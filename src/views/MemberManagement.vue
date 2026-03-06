@@ -1,8 +1,8 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Plus, Edit, Delete, Search, Wallet, User } from '@element-plus/icons-vue'
-import type { Member, Recharge } from '../../electron/main/database/types'
+import { Plus, Edit, Delete, Search, Wallet } from '@element-plus/icons-vue'
+import type { Member, Recharge, Order } from '../../electron/main/database/types'
 
 // 会员列表
 const members = ref<Member[]>([])
@@ -175,26 +175,42 @@ const saveMember = async () => {
 
 // 删除会员
 const deleteMember = async (member: Member) => {
+  const balanceWarning = member.balance > 0
+    ? `\n\n⚠️ 该会员当前余额为 ¥${member.balance.toFixed(2)}，删除后余额将无法恢复！`
+    : ''
+
   try {
-    await ElMessageBox.confirm(`确定要删除会员"${member.name}"吗？`, '提示', {
-      confirmButtonText: '确定',
-      cancelButtonText: '取消',
-      type: 'warning'
-    })
+    await ElMessageBox.confirm(
+      `确定要删除会员"${member.name}"吗？${balanceWarning}`,
+      '删除确认',
+      {
+        confirmButtonText: '确定删除',
+        cancelButtonText: '取消',
+        type: 'warning'
+      }
+    )
 
     loading.value = true
     await window.electronAPI.db.members.delete(member.id!)
     ElMessage.success('删除成功')
     await loadMembers()
-  } catch (error) {
-    if (error !== 'cancel') {
-      ElMessage.error('删除失败')
+  } catch (error: any) {
+    if (error !== 'cancel' && error !== undefined) {
+      ElMessage.error(error?.message || '删除失败')
       console.error(error)
     }
   } finally {
     loading.value = false
   }
 }
+
+// 充值方案预设
+const rechargePresets = [
+  { actual: 100, received: 110, label: '充100送10' },
+  { actual: 200, received: 230, label: '充200送30' },
+  { actual: 500, received: 580, label: '充500送80' },
+  { actual: 1000, received: 1200, label: '充1000送200' }
+]
 
 // 打开充值对话框
 const openRechargeDialog = (member: Member) => {
@@ -205,6 +221,12 @@ const openRechargeDialog = (member: Member) => {
     paymentMethod: 'cash'
   }
   rechargeDialog.value = true
+}
+
+// 应用充值预设
+const applyPreset = (preset: { actual: number; received: number }) => {
+  rechargeForm.value.actualAmount = preset.actual
+  rechargeForm.value.receivedAmount = preset.received
 }
 
 // 计算赠送金额
@@ -229,6 +251,17 @@ const confirmRecharge = async () => {
     return
   }
 
+  const bonusText = bonusAmount.value > 0 ? `（含赠送 ¥${bonusAmount.value.toFixed(1)}）` : ''
+  try {
+    await ElMessageBox.confirm(
+      `确定为 ${selectedMember.value.name} 充值 ¥${rechargeForm.value.receivedAmount.toFixed(1)}${bonusText}？\n\n充值后余额：¥${(selectedMember.value.balance + rechargeForm.value.receivedAmount).toFixed(1)}`,
+      '确认充值',
+      { confirmButtonText: '确认', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
+
   loading.value = true
   try {
     const rechargeData = {
@@ -239,11 +272,11 @@ const confirmRecharge = async () => {
     }
 
     await window.electronAPI.db.recharges.create(rechargeData)
-    ElMessage.success('充值成功')
+    ElMessage.success(`充值成功！充值后余额 ¥${(selectedMember.value!.balance + rechargeForm.value.receivedAmount).toFixed(1)}`)
     rechargeDialog.value = false
     await loadMembers()
-  } catch (error) {
-    ElMessage.error('充值失败')
+  } catch (error: any) {
+    ElMessage.error(error?.message || '充值失败')
     console.error(error)
   } finally {
     loading.value = false
@@ -445,6 +478,20 @@ onMounted(() => {
           </div>
         </el-form-item>
 
+        <el-form-item label="快捷方案">
+          <div class="recharge-presets">
+            <el-button
+              v-for="preset in rechargePresets"
+              :key="preset.actual"
+              :type="rechargeForm.actualAmount === preset.actual && rechargeForm.receivedAmount === preset.received ? 'primary' : 'default'"
+              size="small"
+              @click="applyPreset(preset)"
+            >
+              {{ preset.label }}
+            </el-button>
+          </div>
+        </el-form-item>
+
         <el-form-item label="实付金额" required>
           <el-input-number
             v-model="rechargeForm.actualAmount"
@@ -627,7 +674,7 @@ onMounted(() => {
 
 <style scoped>
 .member-management {
-  padding: 24px;
+  padding: 28px;
   min-height: 100vh;
 }
 
@@ -635,14 +682,21 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding: 20px 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-normal), box-shadow var(--transition-normal);
+  border: 1px solid var(--border-light);
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .header-actions {
@@ -685,7 +739,7 @@ onMounted(() => {
 
 .member-info {
   font-size: 16px;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .current-balance {
@@ -710,7 +764,7 @@ onMounted(() => {
   margin-bottom: 20px;
   padding: 20px;
   background: linear-gradient(135deg, #667eea 0%, #764ba2 100%);
-  border-radius: 12px;
+  border-radius: var(--radius-md);
   color: white;
 }
 
@@ -749,7 +803,7 @@ onMounted(() => {
   align-items: center;
   padding: 12px;
   background: rgba(255, 255, 255, 0.15);
-  border-radius: 8px;
+  border-radius: var(--radius-sm);
   backdrop-filter: blur(10px);
 }
 
@@ -804,5 +858,11 @@ onMounted(() => {
 
 .empty-history {
   padding: 40px 0;
+}
+
+.recharge-presets {
+  display: flex;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 </style>

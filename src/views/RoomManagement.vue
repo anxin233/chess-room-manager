@@ -296,7 +296,7 @@ const handleSearch = () => {
 
 <style scoped>
 .room-management {
-  padding: 24px;
+  padding: 28px;
   min-height: 100vh;
 }
 
@@ -304,14 +304,20 @@ const handleSearch = () => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding: 20px 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .header-actions {
@@ -326,26 +332,29 @@ const handleSearch = () => {
 }
 
 .room-card {
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
+  border: 1px solid var(--border-light);
 }
 
 .room-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
 }
 
 .room-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .room-name {
   font-size: 18px;
-  font-weight: 600;
-  color: #303133;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .room-info {
@@ -355,29 +364,30 @@ const handleSearch = () => {
 .info-item {
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: 14px;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
 
 .info-item .label {
-  color: #909399;
+  color: var(--text-secondary);
   margin-right: 8px;
 }
 
 .info-item .value {
-  color: #606266;
+  color: var(--text-regular);
   font-weight: 500;
 }
 
 .info-item .price {
   color: #f56c6c;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .room-actions {
   display: flex;
   gap: 8px;
+  padding-top: 4px;
 }
 
 .empty-state {

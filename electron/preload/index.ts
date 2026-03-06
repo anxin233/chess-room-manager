@@ -10,6 +10,9 @@ export interface ElectronAPI {
   getAppPath: () => Promise<string>
   uploadImage: () => Promise<string | null>
   getImagePath: (relativePath: string) => Promise<string | null>
+  backupDatabase: () => Promise<{ success: boolean; path?: string; error?: string }>
+  restoreDatabase: () => Promise<{ success: boolean; error?: string }>
+  exportCsv: (csvContent: string, defaultName: string) => Promise<{ success: boolean; path?: string; error?: string }>
 
   // 数据库 API
   db: {
@@ -24,6 +27,7 @@ export interface ElectronAPI {
       getAll: () => Promise<Member[]>
       getById: (id: number) => Promise<Member | null>
       getByPhone: (phone: string) => Promise<Member | null>
+      search: (keyword: string) => Promise<Member[]>
       create: (member: Omit<Member, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Member>
       update: (id: number, member: Partial<Member>) => Promise<Member | null>
       delete: (id: number) => Promise<boolean>
@@ -41,6 +45,9 @@ export interface ElectronAPI {
       getByStatus: (status: string) => Promise<Order[]>
       create: (order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>) => Promise<Order>
       update: (id: number, order: Partial<Order>) => Promise<Order | null>
+      createWithProducts: (orderData: any, products: any[]) => Promise<Order>
+      complete: (data: any) => Promise<Order>
+      cancel: (orderId: number) => Promise<Order>
     }
     productCategories: {
       getAll: () => Promise<ProductCategory[]>
@@ -61,10 +68,12 @@ export interface ElectronAPI {
       create: (sale: Omit<ProductSale, 'id' | 'createdAt'>) => Promise<ProductSale>
       getByOrderId: (orderId: number) => Promise<ProductSale[]>
       delete: (id: number) => Promise<boolean>
+      getAll: () => Promise<ProductSale[]>
     }
     recharges: {
       create: (recharge: Omit<Recharge, 'id' | 'createdAt'>) => Promise<Recharge>
       getByMemberId: (memberId: number) => Promise<Recharge[]>
+      getAll: () => Promise<Recharge[]>
     }
   }
 }
@@ -83,6 +92,9 @@ const electronAPI: ElectronAPI = {
   getAppPath: () => ipcRenderer.invoke('get-app-path'),
   uploadImage: () => ipcRenderer.invoke('upload-image'),
   getImagePath: (relativePath) => ipcRenderer.invoke('get-image-path', relativePath),
+  backupDatabase: () => ipcRenderer.invoke('backup-database'),
+  restoreDatabase: () => ipcRenderer.invoke('restore-database'),
+  exportCsv: (csvContent, defaultName) => ipcRenderer.invoke('export-csv', csvContent, defaultName),
 
   db: {
     rooms: {
@@ -96,6 +108,7 @@ const electronAPI: ElectronAPI = {
       getAll: () => ipcRenderer.invoke('db:members:getAll'),
       getById: (id) => ipcRenderer.invoke('db:members:getById', id),
       getByPhone: (phone) => ipcRenderer.invoke('db:members:getByPhone', phone),
+      search: (keyword) => ipcRenderer.invoke('db:members:search', keyword),
       create: (member) => ipcRenderer.invoke('db:members:create', toIpcPayload(member)),
       update: (id, member) => ipcRenderer.invoke('db:members:update', id, toIpcPayload(member)),
       delete: (id) => ipcRenderer.invoke('db:members:delete', id),
@@ -106,7 +119,10 @@ const electronAPI: ElectronAPI = {
       getById: (id) => ipcRenderer.invoke('db:orders:getById', id),
       getByStatus: (status) => ipcRenderer.invoke('db:orders:getByStatus', status),
       create: (order) => ipcRenderer.invoke('db:orders:create', toIpcPayload(order)),
-      update: (id, order) => ipcRenderer.invoke('db:orders:update', id, toIpcPayload(order))
+      update: (id, order) => ipcRenderer.invoke('db:orders:update', id, toIpcPayload(order)),
+      createWithProducts: (orderData, products) => ipcRenderer.invoke('db:orders:createWithProducts', toIpcPayload(orderData), toIpcPayload(products)),
+      complete: (data) => ipcRenderer.invoke('db:orders:complete', toIpcPayload(data)),
+      cancel: (orderId) => ipcRenderer.invoke('db:orders:cancel', orderId)
     },
     productCategories: {
       getAll: () => ipcRenderer.invoke('db:productCategories:getAll'),

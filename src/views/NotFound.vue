@@ -55,7 +55,7 @@ const goHome = () => {
 
 .error-description {
   font-size: 1.1rem;
-  color: #888;
+  color: var(--text-secondary);
   margin-bottom: 2rem;
 }
 

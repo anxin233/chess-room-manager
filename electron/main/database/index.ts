@@ -38,8 +38,9 @@ export function initDatabase() {
     db = new Database(dbPath)
     console.log('[DB] Database instance created')
 
-    db.pragma('journal_mode = WAL') // 启用 WAL 模式提升性能
-    console.log('[DB] WAL mode enabled')
+    db.pragma('journal_mode = WAL')
+    db.pragma('foreign_keys = ON')
+    console.log('[DB] WAL mode and foreign keys enabled')
 
     // 创建表
     console.log('[DB] Creating tables...')
@@ -105,6 +106,7 @@ function createTables() {
       id INTEGER PRIMARY KEY AUTOINCREMENT,
       room_id INTEGER NOT NULL,
       member_id INTEGER,
+      hourly_rate REAL NOT NULL DEFAULT 0,
       start_time TEXT NOT NULL,
       end_time TEXT,
       duration INTEGER,
@@ -125,6 +127,17 @@ function createTables() {
   if (!hasPrepaidAmount) {
     db.exec(`ALTER TABLE orders ADD COLUMN prepaid_amount REAL NOT NULL DEFAULT 0`)
     console.log('[DB] Added prepaid_amount column to orders table')
+  }
+
+  const hasHourlyRate = columns.some(col => col.name === 'hourly_rate')
+  if (!hasHourlyRate) {
+    db.exec(`ALTER TABLE orders ADD COLUMN hourly_rate REAL NOT NULL DEFAULT 0`)
+    db.exec(`
+      UPDATE orders SET hourly_rate = (
+        SELECT rooms.hourly_rate FROM rooms WHERE rooms.id = orders.room_id
+      ) WHERE hourly_rate = 0
+    `)
+    console.log('[DB] Added hourly_rate column to orders table and backfilled from rooms')
   }
 
   // 商品分类表

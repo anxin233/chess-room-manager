@@ -28,6 +28,7 @@ export interface Order {
   id?: number
   roomId: number // 房间ID
   memberId?: number // 会员ID（可选）
+  hourlyRate: number // 开单时的费率（结账按此费率计算）
   startTime: string // 开始时间
   endTime?: string // 结束时间
   duration?: number // 时长（分钟）

@@ -70,6 +70,12 @@ export function updateRoom(id: number, room: Partial<Room>): Room | null {
 
 export function deleteRoom(id: number): boolean {
   const db = getDatabase()
+  const ongoing = db.prepare(
+    "SELECT COUNT(*) as count FROM orders WHERE room_id = ? AND status = 'ongoing'"
+  ).get(id) as { count: number }
+  if (ongoing.count > 0) {
+    throw new Error('该房间有进行中的订单，无法删除')
+  }
   const result = db.prepare('DELETE FROM rooms WHERE id = ?').run(id)
   return result.changes > 0
 }
@@ -120,6 +126,16 @@ export function updateMember(id: number, member: Partial<Member>): Member | null
 
 export function deleteMember(id: number): boolean {
   const db = getDatabase()
+  const member = getMemberById(id)
+  if (member && member.balance > 0) {
+    throw new Error(`该会员余额为 ¥${member.balance.toFixed(2)}，请先处理余额后再删除`)
+  }
+  const ongoing = db.prepare(
+    "SELECT COUNT(*) as count FROM orders WHERE member_id = ? AND status = 'ongoing'"
+  ).get(id) as { count: number }
+  if (ongoing.count > 0) {
+    throw new Error('该会员有进行中的订单，无法删除')
+  }
   const result = db.prepare('DELETE FROM members WHERE id = ?').run(id)
   return result.changes > 0
 }
@@ -148,10 +164,10 @@ export function createOrder(order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>
   const db = getDatabase()
   const data = toSnakeCase(order)
 
-  // 处理可选字段，将 undefined 转为 null
   const orderData = {
     room_id: data.room_id,
     member_id: data.member_id ?? null,
+    hourly_rate: data.hourly_rate ?? 0,
     start_time: data.start_time,
     end_time: data.end_time ?? null,
     duration: data.duration ?? null,
@@ -162,8 +178,8 @@ export function createOrder(order: Omit<Order, 'id' | 'createdAt' | 'updatedAt'>
   }
 
   const result = db.prepare(`
-    INSERT INTO orders (room_id, member_id, start_time, end_time, duration, amount, prepaid_amount, payment_method, status)
-    VALUES (@room_id, @member_id, @start_time, @end_time, @duration, @amount, @prepaid_amount, @payment_method, @status)
+    INSERT INTO orders (room_id, member_id, hourly_rate, start_time, end_time, duration, amount, prepaid_amount, payment_method, status)
+    VALUES (@room_id, @member_id, @hourly_rate, @start_time, @end_time, @duration, @amount, @prepaid_amount, @payment_method, @status)
   `).run(orderData)
 
   return getOrderById(result.lastInsertRowid as number)!
@@ -299,6 +315,14 @@ export function updateProduct(id: number, product: Partial<Product>): Product | 
 
 export function deleteProduct(id: number): boolean {
   const db = getDatabase()
+  const inUse = db.prepare(`
+    SELECT COUNT(*) as count FROM product_sales ps
+    JOIN orders o ON ps.order_id = o.id
+    WHERE ps.product_id = ? AND o.status = 'ongoing'
+  `).get(id) as { count: number }
+  if (inUse.count > 0) {
+    throw new Error('该商品在进行中的订单中被使用，无法删除')
+  }
   const result = db.prepare('DELETE FROM products WHERE id = ?').run(id)
   return result.changes > 0
 }
@@ -376,6 +400,162 @@ export function getAllRecharges(): Recharge[] {
   const db = getDatabase()
   const rows = db.prepare('SELECT * FROM recharges ORDER BY created_at DESC').all()
   return rows.map(toCamelCase)
+}
+
+// ==================== 会员搜索 ====================
+
+export function searchMembers(keyword: string): Member[] {
+  const db = getDatabase()
+  const like = `%${keyword}%`
+  const rows = db.prepare(
+    'SELECT * FROM members WHERE name LIKE ? OR phone LIKE ? ORDER BY id DESC LIMIT 20'
+  ).all(like, like)
+  return rows.map(toCamelCase)
+}
+
+// ==================== 事务性业务方法 ====================
+
+export function createOrderWithProducts(
+  orderData: {
+    roomId: number
+    memberId?: number
+    hourlyRate: number
+    startTime: string
+    amount: number
+    prepaidAmount: number
+    paymentMethod: string
+  },
+  products: Array<{ productId: number; quantity: number; amount: number }>
+): Order {
+  const db = getDatabase()
+
+  const transaction = db.transaction(() => {
+    const result = db.prepare(`
+      INSERT INTO orders (room_id, member_id, hourly_rate, start_time, amount, prepaid_amount, payment_method, status)
+      VALUES (@room_id, @member_id, @hourly_rate, @start_time, @amount, @prepaid_amount, @payment_method, 'ongoing')
+    `).run({
+      room_id: orderData.roomId,
+      member_id: orderData.memberId ?? null,
+      hourly_rate: orderData.hourlyRate,
+      start_time: orderData.startTime,
+      amount: orderData.amount,
+      prepaid_amount: orderData.prepaidAmount,
+      payment_method: orderData.paymentMethod
+    })
+
+    const orderId = result.lastInsertRowid as number
+
+    for (const p of products) {
+      db.prepare(`
+        INSERT INTO product_sales (product_id, order_id, quantity, amount)
+        VALUES (@product_id, @order_id, @quantity, @amount)
+      `).run({
+        product_id: p.productId,
+        order_id: orderId,
+        quantity: p.quantity,
+        amount: p.amount
+      })
+
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(p.productId) as any
+      if (product && !product.is_unlimited_stock) {
+        db.prepare('UPDATE products SET stock = stock - ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?')
+          .run(p.quantity, p.productId)
+      }
+    }
+
+    db.prepare("UPDATE rooms SET status = 'occupied', updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(orderData.roomId)
+
+    return orderId
+  })
+
+  const orderId = transaction()
+  return getOrderById(orderId as number)!
+}
+
+export function completeOrder(data: {
+  orderId: number
+  endTime: string
+  duration: number
+  amount: number
+  actualAmount: number
+  paymentMethod: string
+  roomId: number
+  memberId?: number
+}): Order {
+  const db = getDatabase()
+
+  const transaction = db.transaction(() => {
+    db.prepare(`
+      UPDATE orders SET
+        end_time = @end_time,
+        duration = @duration,
+        amount = @amount,
+        payment_method = @payment_method,
+        status = 'completed',
+        updated_at = datetime('now', 'localtime')
+      WHERE id = @id
+    `).run({
+      id: data.orderId,
+      end_time: data.endTime,
+      duration: data.duration,
+      amount: data.actualAmount,
+      payment_method: data.paymentMethod
+    })
+
+    if (data.paymentMethod === 'balance' && data.memberId) {
+      const member = db.prepare('SELECT * FROM members WHERE id = ?').get(data.memberId) as any
+      if (!member) throw new Error('会员不存在')
+      if (member.balance < data.actualAmount) {
+        throw new Error(`会员余额不足（余额 ¥${member.balance.toFixed(2)}，需付 ¥${data.actualAmount.toFixed(2)}）`)
+      }
+      db.prepare(`
+        UPDATE members SET
+          balance = balance - @amount,
+          points = points + @points,
+          updated_at = datetime('now', 'localtime')
+        WHERE id = @id
+      `).run({
+        id: data.memberId,
+        amount: data.actualAmount,
+        points: Math.floor(data.actualAmount)
+      })
+    }
+
+    db.prepare("UPDATE rooms SET status = 'available', updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(data.roomId)
+  })
+
+  transaction()
+  return getOrderById(data.orderId)!
+}
+
+export function cancelOrder(orderId: number): Order {
+  const db = getDatabase()
+
+  const transaction = db.transaction(() => {
+    const order = db.prepare('SELECT * FROM orders WHERE id = ?').get(orderId) as any
+    if (!order) throw new Error('订单不存在')
+    if (order.status !== 'ongoing') throw new Error('只能取消进行中的订单')
+
+    const sales = db.prepare('SELECT * FROM product_sales WHERE order_id = ?').all(orderId) as any[]
+    for (const sale of sales) {
+      const product = db.prepare('SELECT * FROM products WHERE id = ?').get(sale.product_id) as any
+      if (product && !product.is_unlimited_stock) {
+        db.prepare('UPDATE products SET stock = stock + ?, updated_at = datetime(\'now\', \'localtime\') WHERE id = ?')
+          .run(sale.quantity, sale.product_id)
+      }
+    }
+
+    db.prepare("UPDATE orders SET status = 'cancelled', updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(orderId)
+
+    db.prepare("UPDATE rooms SET status = 'available', updated_at = datetime('now', 'localtime') WHERE id = ?")
+      .run(order.room_id)
+  })
+
+  transaction()
+  return getOrderById(orderId)!
 }
 
 // 获取会员统计信息

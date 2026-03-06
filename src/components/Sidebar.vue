@@ -1,16 +1,19 @@
 <script setup lang="ts">
 import { RouterLink, useRoute } from 'vue-router'
-import { computed } from 'vue'
 import {
   House,
   Grid,
   User,
   ShoppingCart,
   DataAnalysis,
-  Setting
+  Setting,
+  Sunny,
+  Moon
 } from '@element-plus/icons-vue'
+import { useAppStore } from '@/stores/app'
 
 const route = useRoute()
+const appStore = useAppStore()
 
 const menuItems = [
   { name: 'Hall', path: '/hall', label: '营业大厅', icon: House },
@@ -29,12 +32,14 @@ const isActive = (path: string) => {
 <template>
   <aside class="sidebar">
     <div class="sidebar-header">
-      <div class="logo">
-        <el-icon :size="32" color="#409EFF">
-          <Grid />
-        </el-icon>
+      <div class="logo-wrapper">
+        <div class="logo-icon">
+          <el-icon :size="22" color="#fff">
+            <Grid />
+          </el-icon>
+        </div>
+        <h1 class="title">棋牌室管理</h1>
       </div>
-      <h1 class="title">棋牌室管理</h1>
     </div>
 
     <nav class="sidebar-nav">
@@ -44,7 +49,7 @@ const isActive = (path: string) => {
         :to="item.path"
         :class="['menu-item', { active: isActive(item.path) }]"
       >
-        <el-icon :size="20">
+        <el-icon :size="18">
           <component :is="item.icon" />
         </el-icon>
         <span class="menu-label">{{ item.label }}</span>
@@ -52,6 +57,13 @@ const isActive = (path: string) => {
     </nav>
 
     <div class="sidebar-footer">
+      <div class="theme-toggle" @click="appStore.toggleTheme()">
+        <el-icon :size="15">
+          <Moon v-if="appStore.isDarkTheme" />
+          <Sunny v-else />
+        </el-icon>
+        <span>{{ appStore.isDarkTheme ? '深色模式' : '浅色模式' }}</span>
+      </div>
       <div class="version">v0.1.0</div>
     </div>
   </aside>
@@ -60,58 +72,87 @@ const isActive = (path: string) => {
 <style scoped>
 .sidebar {
   width: 220px;
-  background: #fff;
-  border-right: 1px solid #e4e7ed;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border-light);
   display: flex;
   flex-direction: column;
   height: 100vh;
+  transition: background-color var(--transition-normal), border-color var(--transition-normal);
 }
 
 .sidebar-header {
-  padding: 24px 20px;
-  border-bottom: 1px solid #e4e7ed;
-  text-align: center;
+  padding: 20px 16px;
+  border-bottom: 1px solid var(--border-light);
+  transition: border-color var(--transition-normal);
 }
 
-.logo {
-  margin-bottom: 12px;
+.logo-wrapper {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.logo-icon {
+  width: 36px;
+  height: 36px;
+  border-radius: 10px;
+  background: linear-gradient(135deg, #409EFF, #337ecc);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
 }
 
 .title {
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   margin: 0;
+  transition: color var(--transition-normal);
 }
 
 .sidebar-nav {
   flex: 1;
-  padding: 16px 12px;
+  padding: 12px 10px;
   overflow-y: auto;
 }
 
 .menu-item {
   display: flex;
   align-items: center;
-  gap: 12px;
-  padding: 12px 16px;
-  margin-bottom: 4px;
-  border-radius: 8px;
+  gap: 10px;
+  padding: 10px 14px;
+  margin-bottom: 2px;
+  border-radius: var(--radius-sm);
   text-decoration: none;
-  color: #606266;
-  transition: all 0.3s;
+  color: var(--text-regular);
+  font-size: 14px;
+  transition: all var(--transition-fast);
   cursor: pointer;
+  position: relative;
 }
 
 .menu-item:hover {
-  background: #f5f7fa;
+  background: var(--hover-bg);
   color: #409EFF;
 }
 
 .menu-item.active {
-  background: #ecf5ff;
+  background: var(--active-bg);
   color: #409EFF;
   font-weight: 500;
+}
+
+.menu-item.active::before {
+  content: '';
+  position: absolute;
+  left: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  width: 3px;
+  height: 18px;
+  background: #409EFF;
+  border-radius: 0 3px 3px 0;
 }
 
 .menu-label {
@@ -119,13 +160,34 @@ const isActive = (path: string) => {
 }
 
 .sidebar-footer {
-  padding: 16px 20px;
-  border-top: 1px solid #e4e7ed;
+  padding: 12px 16px 16px;
+  border-top: 1px solid var(--border-light);
   text-align: center;
+  transition: border-color var(--transition-normal);
+}
+
+.theme-toggle {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  font-size: 13px;
+  color: var(--text-secondary);
+  transition: all var(--transition-fast);
+}
+
+.theme-toggle:hover {
+  background: var(--hover-bg);
+  color: #409EFF;
 }
 
 .version {
-  font-size: 12px;
-  color: #909399;
+  font-size: 11px;
+  color: var(--text-placeholder);
+  transition: color var(--transition-normal);
 }
 </style>

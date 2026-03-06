@@ -1,7 +1,7 @@
 <script setup lang="ts">
 import { ref, onMounted, computed } from 'vue'
 import { ElMessage } from 'element-plus'
-import { TrendCharts, DataAnalysis, Refresh, Calendar } from '@element-plus/icons-vue'
+import { TrendCharts, DataAnalysis, Refresh } from '@element-plus/icons-vue'
 import type { Order, ProductSale, Recharge } from '../../electron/main/database/types'
 
 // 时间范围
@@ -199,6 +199,69 @@ const formatAmount = (amount: number) => {
   return `¥${amount.toFixed(1)}`
 }
 
+// 收入构成百分比（用于环形图）
+const revenueComposition = computed(() => {
+  const total = statistics.value.totalRevenue || 1
+  const roomPct = Math.round((statistics.value.roomRevenue / total) * 100)
+  const productPct = 100 - roomPct
+  return { roomPct, productPct }
+})
+
+// 热销商品最大销售额（用于百分比条）
+const maxProductAmount = computed(() => {
+  if (statistics.value.topProducts.length === 0) return 1
+  return Math.max(...statistics.value.topProducts.map(p => p.amount))
+})
+
+// 每日收入趋势（最近7天）
+const dailyRevenueTrend = computed(() => {
+  const days: Array<{ label: string; revenue: number; orders: number }> = []
+  const now = new Date()
+  for (let i = 6; i >= 0; i--) {
+    const date = new Date(now.getFullYear(), now.getMonth(), now.getDate() - i)
+    const nextDate = new Date(date.getTime() + 24 * 60 * 60 * 1000)
+    const dayOrders = orders.value.filter(o => {
+      const t = new Date(o.startTime).getTime()
+      return o.status === 'completed' && t >= date.getTime() && t < nextDate.getTime()
+    })
+    days.push({
+      label: `${date.getMonth() + 1}/${date.getDate()}`,
+      revenue: dayOrders.reduce((s, o) => s + o.amount, 0),
+      orders: dayOrders.length
+    })
+  }
+  return days
+})
+
+const maxDailyRevenue = computed(() => {
+  return Math.max(...dailyRevenueTrend.value.map(d => d.revenue), 1)
+})
+
+// 导出 CSV
+const exportCSV = async () => {
+  const completedOrders = orders.value.filter(o => o.status === 'completed')
+  if (completedOrders.length === 0) {
+    ElMessage.warning('暂无可导出的数据')
+    return
+  }
+
+  const headers = ['订单ID', '房间ID', '会员ID', '费率', '开始时间', '结束时间', '时长(分钟)', '金额', '支付方式', '状态']
+  const rows = completedOrders.map(o => [
+    o.id, o.roomId, o.memberId || '', o.hourlyRate || '',
+    o.startTime, o.endTime || '', o.duration || '',
+    o.amount, o.paymentMethod, o.status
+  ])
+  const csv = [headers.join(','), ...rows.map(r => r.join(','))].join('\n')
+
+  const range = getDateRange()
+  const startLabel = new Date(range.start).toISOString().slice(0, 10)
+  const endLabel = new Date(range.end).toISOString().slice(0, 10)
+  const result = await window.electronAPI.exportCsv(csv, `营业报表_${startLabel}_${endLabel}.csv`)
+  if (result.success) {
+    ElMessage.success(`已导出到 ${result.path}`)
+  }
+}
+
 // 初始化
 onMounted(() => {
   loadStatistics()
@@ -232,6 +295,9 @@ onMounted(() => {
         <el-button :icon="Refresh" @click="loadStatistics" :loading="loading" style="margin-left: 12px">
           刷新
         </el-button>
+        <el-button type="primary" plain @click="exportCSV" style="margin-left: 8px">
+          导出 CSV
+        </el-button>
       </div>
     </div>
 
@@ -261,6 +327,54 @@ onMounted(() => {
           <div class="stat-label">会员充值</div>
           <div class="stat-value">{{ formatAmount(statistics.totalRecharge) }}</div>
           <div class="stat-desc">充值次数: {{ statistics.rechargeCount }}</div>
+        </el-card>
+      </div>
+
+      <!-- 图表区域 -->
+      <div class="charts-row">
+        <!-- 收入构成环形图 -->
+        <el-card class="chart-card">
+          <div class="card-title">收入构成</div>
+          <div class="donut-chart-wrapper" v-if="statistics.totalRevenue > 0">
+            <div
+              class="donut-chart"
+              :style="{ background: `conic-gradient(#667eea 0% ${revenueComposition.roomPct}%, #f5576c ${revenueComposition.roomPct}% 100%)` }"
+            >
+              <div class="donut-center">
+                <div class="donut-total">{{ formatAmount(statistics.totalRevenue) }}</div>
+                <div class="donut-label">总收入</div>
+              </div>
+            </div>
+            <div class="donut-legend">
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #667eea;"></span>
+                <span>房费 {{ revenueComposition.roomPct }}%</span>
+              </div>
+              <div class="legend-item">
+                <span class="legend-dot" style="background: #f5576c;"></span>
+                <span>商品 {{ revenueComposition.productPct }}%</span>
+              </div>
+            </div>
+          </div>
+          <el-empty v-else description="暂无收入数据" :image-size="60" />
+        </el-card>
+
+        <!-- 每日收入趋势 -->
+        <el-card class="chart-card trend-card">
+          <div class="card-title">近7日收入趋势</div>
+          <div class="bar-chart" v-if="dailyRevenueTrend.some(d => d.revenue > 0)">
+            <div v-for="(day, i) in dailyRevenueTrend" :key="i" class="bar-column">
+              <div class="bar-value">{{ day.revenue > 0 ? '¥' + day.revenue.toFixed(0) : '' }}</div>
+              <div class="bar-track">
+                <div
+                  class="bar-fill"
+                  :style="{ height: (day.revenue / maxDailyRevenue * 100) + '%' }"
+                ></div>
+              </div>
+              <div class="bar-label">{{ day.label }}</div>
+            </div>
+          </div>
+          <el-empty v-else description="暂无趋势数据" :image-size="60" />
         </el-card>
       </div>
 
@@ -314,6 +428,12 @@ onMounted(() => {
               <div class="product-rank">{{ index + 1 }}</div>
               <div class="product-info">
                 <div class="product-name">{{ item.name }}</div>
+                <div class="product-bar-track">
+                  <div
+                    class="product-bar-fill"
+                    :style="{ width: (item.amount / maxProductAmount * 100) + '%' }"
+                  ></div>
+                </div>
                 <div class="product-stats">
                   <span>销量: {{ item.quantity }}</span>
                   <span class="amount">{{ formatAmount(item.amount) }}</span>
@@ -352,27 +472,29 @@ onMounted(() => {
 
 <style scoped>
 .statistics {
-  padding: 24px;
+  padding: 28px;
   min-height: 100vh;
-  background: #f5f7fa;
 }
 
 .page-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
-  background: #fff;
-  padding: 20px;
-  border-radius: 8px;
-  box-shadow: 0 2px 4px rgba(0, 0, 0, 0.05);
+  margin-bottom: 28px;
+  background: var(--bg-card);
+  padding: 20px 24px;
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-normal), box-shadow var(--transition-normal);
+  border: 1px solid var(--border-light);
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .header-actions {
@@ -387,12 +509,13 @@ onMounted(() => {
 .section-title {
   display: flex;
   align-items: center;
-  font-size: 18px;
+  font-size: 16px;
   font-weight: 600;
-  color: #303133;
-  margin: 32px 0 16px;
+  color: var(--text-primary);
+  margin: 28px 0 16px;
   padding-left: 12px;
-  border-left: 4px solid #409eff;
+  border-left: 3px solid #409eff;
+  transition: color var(--transition-normal);
 }
 
 .section-title .el-icon {
@@ -416,13 +539,14 @@ onMounted(() => {
 
 .stat-card {
   padding: 20px;
-  transition: all 0.3s;
+  transition: all var(--transition-normal);
   cursor: default;
+  border: 1px solid var(--border-light);
 }
 
 .stat-card:hover {
-  transform: translateY(-4px);
-  box-shadow: 0 4px 12px rgba(0, 0, 0, 0.1);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
 }
 
 .stat-card.primary {
@@ -489,12 +613,13 @@ onMounted(() => {
 }
 
 .card-title {
-  font-size: 16px;
+  font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 16px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--border-light);
+  transition: color var(--transition-normal), border-color var(--transition-normal);
 }
 
 .empty-data {
@@ -511,13 +636,13 @@ onMounted(() => {
   display: flex;
   align-items: center;
   padding: 12px;
-  background: #f5f7fa;
-  border-radius: 8px;
-  transition: all 0.3s;
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+  transition: all var(--transition-fast);
 }
 
 .product-item:hover {
-  background: #e8f4ff;
+  background: var(--active-bg);
   transform: translateX(4px);
 }
 
@@ -554,7 +679,7 @@ onMounted(() => {
 .product-name {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 4px;
 }
 
@@ -562,11 +687,154 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .product-stats .amount {
   color: #f56c6c;
   font-weight: 600;
+}
+
+.product-bar-track {
+  height: 6px;
+  background: var(--border-light);
+  border-radius: 3px;
+  margin: 6px 0;
+  overflow: hidden;
+}
+
+.product-bar-fill {
+  height: 100%;
+  background: linear-gradient(90deg, #667eea, #764ba2);
+  border-radius: 3px;
+  transition: width 0.6s ease;
+}
+
+/* 图表区域 */
+.charts-row {
+  display: grid;
+  grid-template-columns: 320px 1fr;
+  gap: 16px;
+  margin-bottom: 24px;
+  margin-top: 20px;
+}
+
+.chart-card {
+  padding: 20px;
+  border: 1px solid var(--border-light);
+}
+
+/* 环形图 */
+.donut-chart-wrapper {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  padding: 16px 0;
+}
+
+.donut-chart {
+  width: 160px;
+  height: 160px;
+  border-radius: 50%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  position: relative;
+}
+
+.donut-center {
+  width: 100px;
+  height: 100px;
+  border-radius: 50%;
+  background: var(--bg-card);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+}
+
+.donut-total {
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.donut-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 2px;
+}
+
+.donut-legend {
+  display: flex;
+  gap: 20px;
+  margin-top: 16px;
+}
+
+.legend-item {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--text-regular);
+}
+
+.legend-dot {
+  width: 10px;
+  height: 10px;
+  border-radius: 50%;
+  flex-shrink: 0;
+}
+
+/* 柱状图 */
+.bar-chart {
+  display: flex;
+  align-items: flex-end;
+  gap: 12px;
+  height: 220px;
+  padding: 16px 0;
+}
+
+.bar-column {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  height: 100%;
+}
+
+.bar-value {
+  font-size: 11px;
+  color: var(--text-secondary);
+  margin-bottom: 4px;
+  white-space: nowrap;
+  min-height: 16px;
+}
+
+.bar-track {
+  flex: 1;
+  width: 100%;
+  max-width: 40px;
+  background: var(--border-light);
+  border-radius: 4px 4px 0 0;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: flex-end;
+}
+
+.bar-fill {
+  width: 100%;
+  background: linear-gradient(180deg, #667eea, #764ba2);
+  border-radius: 4px 4px 0 0;
+  transition: height 0.6s ease;
+  min-height: 2px;
+}
+
+.bar-label {
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-top: 6px;
+  white-space: nowrap;
 }
 </style>

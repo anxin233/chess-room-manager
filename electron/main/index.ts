@@ -151,6 +151,7 @@ ipcMain.handle('db:rooms:delete', (_, id: number) => dbServices.deleteRoom(id))
 ipcMain.handle('db:members:getAll', () => dbServices.getAllMembers())
 ipcMain.handle('db:members:getById', (_, id: number) => dbServices.getMemberById(id))
 ipcMain.handle('db:members:getByPhone', (_, phone: string) => dbServices.getMemberByPhone(phone))
+ipcMain.handle('db:members:search', (_, keyword: string) => dbServices.searchMembers(keyword))
 ipcMain.handle('db:members:create', (_, member) => dbServices.createMember(member))
 ipcMain.handle('db:members:update', (_, id: number, member) => dbServices.updateMember(id, member))
 ipcMain.handle('db:members:delete', (_, id: number) => dbServices.deleteMember(id))
@@ -161,6 +162,11 @@ ipcMain.handle('db:orders:getById', (_, id: number) => dbServices.getOrderById(i
 ipcMain.handle('db:orders:getByStatus', (_, status: string) => dbServices.getOrdersByStatus(status))
 ipcMain.handle('db:orders:create', (_, order) => dbServices.createOrder(order))
 ipcMain.handle('db:orders:update', (_, id: number, order) => dbServices.updateOrder(id, order))
+ipcMain.handle('db:orders:createWithProducts', (_, orderData, products) =>
+  dbServices.createOrderWithProducts(orderData, products)
+)
+ipcMain.handle('db:orders:complete', (_, data) => dbServices.completeOrder(data))
+ipcMain.handle('db:orders:cancel', (_, orderId: number) => dbServices.cancelOrder(orderId))
 
 // 商品分类管理
 ipcMain.handle('db:productCategories:getAll', () => dbServices.getAllProductCategories())
@@ -263,3 +269,57 @@ ipcMain.handle('get-image-path', (_, relativePath: string) => {
 })
 
 ipcMain.handle('db:members:getStats', (_, memberId: number) => dbServices.getMemberStats(memberId))
+
+// 数据库备份
+ipcMain.handle('backup-database', async () => {
+  const result = await dialog.showSaveDialog({
+    title: '备份数据库',
+    defaultPath: `chess-room-backup-${new Date().toISOString().slice(0, 10)}.db`,
+    filters: [{ name: 'SQLite Database', extensions: ['db'] }]
+  })
+  if (result.canceled || !result.filePath) return { success: false }
+  try {
+    const dbPath = getDatabasePath()
+    copyFileSync(dbPath, result.filePath)
+    return { success: true, path: result.filePath }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// 数据库恢复
+ipcMain.handle('restore-database', async () => {
+  const result = await dialog.showOpenDialog({
+    title: '恢复数据库',
+    filters: [{ name: 'SQLite Database', extensions: ['db'] }],
+    properties: ['openFile']
+  })
+  if (result.canceled || result.filePaths.length === 0) return { success: false }
+  try {
+    const dbPath = getDatabasePath()
+    const backupPath = `${dbPath}.bak-${Date.now()}`
+    copyFileSync(dbPath, backupPath)
+    closeDatabase()
+    copyFileSync(result.filePaths[0], dbPath)
+    initDatabase()
+    return { success: true }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})
+
+// CSV 导出
+ipcMain.handle('export-csv', async (_, csvContent: string, defaultName: string) => {
+  const result = await dialog.showSaveDialog({
+    title: '导出数据',
+    defaultPath: defaultName || 'export.csv',
+    filters: [{ name: 'CSV Files', extensions: ['csv'] }]
+  })
+  if (result.canceled || !result.filePath) return { success: false }
+  try {
+    writeFileSync(result.filePath, '\uFEFF' + csvContent, 'utf-8')
+    return { success: true, path: result.filePath }
+  } catch (error: any) {
+    return { success: false, error: error.message }
+  }
+})

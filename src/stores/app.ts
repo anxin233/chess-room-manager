@@ -1,38 +1,55 @@
 import { defineStore } from 'pinia'
 import { ref, computed } from 'vue'
 
+const THEME_KEY = 'chess-room-theme'
+
+function applyThemeToDOM(theme: 'light' | 'dark') {
+  const html = document.documentElement
+  if (theme === 'dark') {
+    html.classList.add('dark')
+  } else {
+    html.classList.remove('dark')
+  }
+  html.setAttribute('data-theme', theme)
+}
+
+function getSavedTheme(): 'light' | 'dark' {
+  const saved = localStorage.getItem(THEME_KEY)
+  if (saved === 'light' || saved === 'dark') return saved
+  return 'light'
+}
+
 export const useAppStore = defineStore('app', () => {
-  // 状态
   const appVersion = ref<string>('')
   const appPath = ref<string>('')
-  const theme = ref<'light' | 'dark'>('dark')
+  const theme = ref<'light' | 'dark'>(getSavedTheme())
   const isLoading = ref(false)
 
-  // 计算属性
   const isDarkTheme = computed(() => theme.value === 'dark')
 
-  // 方法
   const setAppInfo = (version: string, path: string) => {
     appVersion.value = version
     appPath.value = path
   }
 
   const toggleTheme = () => {
-    theme.value = theme.value === 'light' ? 'dark' : 'light'
-    // 可以在这里添加主题切换的副作用
-    document.documentElement.setAttribute('data-theme', theme.value)
+    setTheme(theme.value === 'light' ? 'dark' : 'light')
   }
 
   const setTheme = (newTheme: 'light' | 'dark') => {
     theme.value = newTheme
-    document.documentElement.setAttribute('data-theme', newTheme)
+    localStorage.setItem(THEME_KEY, newTheme)
+    applyThemeToDOM(newTheme)
+  }
+
+  const initTheme = () => {
+    applyThemeToDOM(theme.value)
   }
 
   const setLoading = (loading: boolean) => {
     isLoading.value = loading
   }
 
-  // 初始化应用信息
   const initAppInfo = async () => {
     if (!window.electronAPI) {
       console.warn('Electron API 不可用，可能在浏览器环境中运行')
@@ -54,17 +71,15 @@ export const useAppStore = defineStore('app', () => {
   }
 
   return {
-    // 状态
     appVersion,
     appPath,
     theme,
     isLoading,
-    // 计算属性
     isDarkTheme,
-    // 方法
     setAppInfo,
     toggleTheme,
     setTheme,
+    initTheme,
     setLoading,
     initAppInfo
   }

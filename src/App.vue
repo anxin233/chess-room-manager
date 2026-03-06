@@ -3,12 +3,14 @@ import { onMounted } from 'vue'
 import { RouterView } from 'vue-router'
 import Sidebar from './components/Sidebar.vue'
 import { useUserStore } from './stores/user'
+import { useAppStore } from './stores/app'
 
 const userStore = useUserStore()
+const appStore = useAppStore()
 
 onMounted(() => {
-  // 恢复用户信息
   userStore.restoreUser()
+  appStore.initTheme()
 })
 </script>
 
@@ -23,13 +25,15 @@ onMounted(() => {
 
 <style scoped>
 .app-container {
-  min-height: 100vh;
+  height: 100vh;
   display: flex;
+  overflow: hidden;
 }
 
 .main-content {
   flex: 1;
   overflow-y: auto;
-  background: #f5f7fa;
+  background: var(--bg-page);
+  transition: background-color 0.3s;
 }
 </style>

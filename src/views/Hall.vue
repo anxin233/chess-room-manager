@@ -1,8 +1,8 @@
 <script setup lang="ts">
-import { ref, onMounted, computed } from 'vue'
+import { ref, onMounted, onUnmounted, computed } from 'vue'
 import { ElMessage, ElMessageBox } from 'element-plus'
-import { Refresh, Clock, Money, Plus, Delete, Box, Check } from '@element-plus/icons-vue'
-import type { Room, Order, Product, ProductSale } from '../../electron/main/database/types'
+import { Refresh, Box, Check } from '@element-plus/icons-vue'
+import type { Room, Order, Product, ProductSale, Member } from '../../electron/main/database/types'
 
 // 房间列表
 const rooms = ref<Room[]>([])
@@ -18,6 +18,10 @@ const selectedProducts = ref<Array<{ product: Product; quantity: number }>>([])
 const productSelectDialog = ref(false)
 const tempSelectedProducts = ref<Array<{ product: Product; quantity: number }>>([])
 
+// 会员搜索
+const allMembers = ref<Member[]>([])
+const selectedMember = ref<Member | null>(null)
+
 // 开单对话框
 const openOrderDialog = ref(false)
 const selectedRoom = ref<Room | null>(null)
@@ -31,6 +35,7 @@ const orderForm = ref({
 // 结账对话框
 const checkoutDialog = ref(false)
 const checkoutOrder = ref<Order | null>(null)
+const checkoutRoom = ref<Room | null>(null)
 const checkoutProductSales = ref<Array<ProductSale & { productName: string }>>([])
 const checkoutForm = ref({
   paymentMethod: 'cash' as 'cash' | 'card' | 'wechat' | 'alipay' | 'balance',
@@ -132,21 +137,6 @@ const loadProducts = async () => {
   }
 }
 
-// 添加商品
-const addProduct = (product: Product) => {
-  const existing = selectedProducts.value.find(item => item.product.id === product.id)
-  if (existing) {
-    existing.quantity++
-  } else {
-    selectedProducts.value.push({ product, quantity: 1 })
-  }
-}
-
-// 移除商品
-const removeProduct = (index: number) => {
-  selectedProducts.value.splice(index, 1)
-}
-
 // 计算商品总额
 const getProductsTotal = computed(() => {
   return selectedProducts.value.reduce((sum, item) => sum + item.product.price * item.quantity, 0)
@@ -208,12 +198,30 @@ const productsByCategory = computed(() => {
   for (const category of allCategories.value) {
     groups[category.id] = {
       category,
-      products: allProducts.value.filter(p => p.categoryId === category.id && p.status === 'available')
+      products: allProducts.value.filter(p => p.categoryId === category.id && p.status === 'available' && (p.isUnlimitedStock || p.stock > 0))
     }
   }
 
   return Object.values(groups).filter(g => g.products.length > 0)
 })
+
+// 加载所有会员（用于下拉选择）
+const loadMembers = async () => {
+  try {
+    allMembers.value = await window.electronAPI.db.members.getAll()
+  } catch (error) {
+    console.error('加载会员失败', error)
+  }
+}
+
+// 会员选择变化
+const onMemberChange = (memberId: number | undefined) => {
+  if (memberId) {
+    selectedMember.value = allMembers.value.find(m => m.id === memberId) || null
+  } else {
+    selectedMember.value = null
+  }
+}
 
 // 打开开单对话框
 const openOrder = (room: Room) => {
@@ -229,51 +237,41 @@ const openOrder = (room: Room) => {
     prepaidAmount: 0
   }
   selectedProducts.value = []
+  selectedMember.value = null
   openOrderDialog.value = true
 }
 
-// 确认开单
+// 确认开单（事务性操作）
 const confirmOpenOrder = async () => {
   if (!selectedRoom.value) return
 
   loading.value = true
   try {
-    const orderData = {
-      roomId: selectedRoom.value.id!,
-      memberId: orderForm.value.memberId,
-      startTime: new Date().toISOString(),
-      amount: orderForm.value.hourlyRate * orderForm.value.estimatedHours,
-      prepaidAmount: orderForm.value.prepaidAmount,
-      paymentMethod: 'cash' as const,
-      status: 'ongoing' as const
-    }
+    const products = selectedProducts.value.map(item => ({
+      productId: item.product.id!,
+      quantity: item.quantity,
+      amount: item.product.price * item.quantity
+    }))
 
-    const order = await window.electronAPI.db.orders.create(orderData)
-
-    // 保存商品销售记录
-    for (const item of selectedProducts.value) {
-      await window.electronAPI.db.productSales.create({
-        productId: item.product.id!,
-        orderId: order.id!,
-        quantity: item.quantity,
-        amount: item.product.price * item.quantity
-      })
-
-      // 扣减库存（如果不是无限库存）
-      if (!item.product.isUnlimitedStock) {
-        await window.electronAPI.db.products.update(item.product.id!, {
-          stock: item.product.stock - item.quantity
-        })
-      }
-    }
-
-    await window.electronAPI.db.rooms.update(selectedRoom.value.id!, { status: 'occupied' })
+    await window.electronAPI.db.orders.createWithProducts(
+      {
+        roomId: selectedRoom.value.id!,
+        memberId: orderForm.value.memberId,
+        hourlyRate: orderForm.value.hourlyRate,
+        startTime: new Date().toISOString(),
+        amount: orderForm.value.hourlyRate * orderForm.value.estimatedHours,
+        prepaidAmount: orderForm.value.prepaidAmount,
+        paymentMethod: 'cash'
+      },
+      products
+    )
 
     ElMessage.success('开单成功')
     openOrderDialog.value = false
     await loadData()
-  } catch (error) {
-    ElMessage.error('开单失败')
+    await loadProducts()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '开单失败')
     console.error(error)
   } finally {
     loading.value = false
@@ -289,8 +287,7 @@ const openCheckout = async (room: Room) => {
   }
 
   checkoutOrder.value = order
-  const duration = getUsedDuration(order.startTime)
-  const roomAmount = calculateAmount(room.hourlyRate, duration)
+  checkoutRoom.value = room
 
   // 加载商品销售记录
   try {
@@ -310,22 +307,37 @@ const openCheckout = async (room: Room) => {
     checkoutProductSales.value = []
   }
 
-  // 计算总金额（房费 + 商品费）
-  const productsAmount = checkoutProductSales.value.reduce((sum, sale) => sum + sale.amount, 0)
-  const totalAmount = roomAmount + productsAmount
+  const totalAmount = checkoutRoomFee.value + checkoutProductsFee.value
 
   checkoutForm.value = {
-    paymentMethod: 'cash',
+    paymentMethod: order.memberId ? 'balance' : 'cash',
     actualAmount: totalAmount
   }
   checkoutDialog.value = true
 }
 
-// 计算结账差额
+// 结账房费（使用订单记录的费率）
+const checkoutRoomFee = computed(() => {
+  if (!checkoutOrder.value) return 0
+  const duration = getUsedDuration(checkoutOrder.value.startTime)
+  const rate = checkoutOrder.value.hourlyRate || checkoutRoom.value?.hourlyRate || 0
+  return calculateAmount(rate, duration)
+})
+
+// 结账商品费
+const checkoutProductsFee = computed(() => {
+  return checkoutProductSales.value.reduce((sum, sale) => sum + sale.amount, 0)
+})
+
+// 结账总计
+const checkoutTotalAmount = computed(() => {
+  return checkoutRoomFee.value + checkoutProductsFee.value
+})
+
+// 计算结账差额（实收 - 已预付）
 const checkoutDifference = computed(() => {
   if (!checkoutOrder.value) return 0
-  const diff = checkoutForm.value.actualAmount - checkoutOrder.value.prepaidAmount
-  return diff
+  return checkoutForm.value.actualAmount - checkoutOrder.value.prepaidAmount
 })
 
 // 差额类型文本
@@ -344,30 +356,92 @@ const differenceType = computed(() => {
   return 'info'
 })
 
-// 确认结账
+// 结账时的会员信息
+const checkoutMember = computed(() => {
+  if (!checkoutOrder.value?.memberId) return null
+  return allMembers.value.find(m => m.id === checkoutOrder.value?.memberId) || null
+})
+
+// 确认结账（带二次确认 + 事务）
 const confirmCheckout = async () => {
   if (!checkoutOrder.value) return
+
+  const payMethodLabel = paymentMethods.find(m => m.value === checkoutForm.value.paymentMethod)?.label || ''
+
+  if (checkoutForm.value.paymentMethod === 'balance') {
+    if (!checkoutOrder.value.memberId) {
+      ElMessage.warning('该订单未关联会员，无法使用会员余额支付')
+      return
+    }
+    if (checkoutMember.value && checkoutMember.value.balance < checkoutForm.value.actualAmount) {
+      ElMessage.warning(`会员余额不足（余额 ¥${checkoutMember.value.balance.toFixed(2)}，需付 ¥${checkoutForm.value.actualAmount.toFixed(2)}）`)
+      return
+    }
+  }
+
+  try {
+    await ElMessageBox.confirm(
+      `确定结账？\n\n` +
+      `房费：¥${checkoutRoomFee.value.toFixed(1)}\n` +
+      `商品费：¥${checkoutProductsFee.value.toFixed(1)}\n` +
+      `总计：¥${checkoutForm.value.actualAmount.toFixed(1)}\n` +
+      `支付方式：${payMethodLabel}`,
+      '确认结账',
+      { confirmButtonText: '确认', cancelButtonText: '取消', type: 'info' }
+    )
+  } catch {
+    return
+  }
 
   loading.value = true
   try {
     const endTime = new Date().toISOString()
     const duration = getUsedDuration(checkoutOrder.value.startTime)
 
-    await window.electronAPI.db.orders.update(checkoutOrder.value.id!, {
+    await window.electronAPI.db.orders.complete({
+      orderId: checkoutOrder.value.id!,
       endTime,
       duration,
-      amount: checkoutForm.value.actualAmount,
+      amount: checkoutTotalAmount.value,
+      actualAmount: checkoutForm.value.actualAmount,
       paymentMethod: checkoutForm.value.paymentMethod,
-      status: 'completed'
+      roomId: checkoutOrder.value.roomId,
+      memberId: checkoutOrder.value.memberId
     })
-
-    await window.electronAPI.db.rooms.update(checkoutOrder.value.roomId, { status: 'available' })
 
     ElMessage.success('结账成功')
     checkoutDialog.value = false
     await loadData()
-  } catch (error) {
-    ElMessage.error('结账失败')
+    await loadMembers()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '结账失败')
+    console.error(error)
+  } finally {
+    loading.value = false
+  }
+}
+
+// 取消订单
+const cancelOrder = async (order: Order) => {
+  try {
+    await ElMessageBox.confirm(
+      '确定要取消此订单吗？取消后将恢复房间状态和商品库存。',
+      '取消订单',
+      { confirmButtonText: '确定取消', cancelButtonText: '返回', type: 'warning' }
+    )
+  } catch {
+    return
+  }
+
+  loading.value = true
+  try {
+    await window.electronAPI.db.orders.cancel(order.id!)
+    ElMessage.success('订单已取消')
+    roomDetailDialog.value = false
+    await loadData()
+    await loadProducts()
+  } catch (error: any) {
+    ElMessage.error(error?.message || '取消订单失败')
     console.error(error)
   } finally {
     loading.value = false
@@ -400,7 +474,7 @@ const discountAmount = computed(() => {
 const openRoomDetail = async (room: Room) => {
   detailRoom.value = room
   const order = getRoomOrder(room.id!)
-  detailOrder.value = order
+  detailOrder.value = order ?? null
 
   if (order) {
     // 加载已点商品
@@ -427,21 +501,6 @@ const openRoomDetail = async (room: Room) => {
 
   detailSelectedProducts.value = []
   roomDetailDialog.value = true
-}
-
-// 详情页添加商品
-const addProductInDetail = (product: Product) => {
-  const existing = detailSelectedProducts.value.find(item => item.product.id === product.id)
-  if (existing) {
-    existing.quantity++
-  } else {
-    detailSelectedProducts.value.push({ product, quantity: 1 })
-  }
-}
-
-// 详情页移除商品
-const removeProductInDetail = (index: number) => {
-  detailSelectedProducts.value.splice(index, 1)
 }
 
 // 详情页商品总额
@@ -585,11 +644,18 @@ const endMaintenance = async (room: Room) => {
 }
 
 // 初始化
+let refreshTimer: ReturnType<typeof setInterval> | null = null
 onMounted(() => {
   loadData()
   loadProducts()
-  // 每30秒刷新一次数据
-  setInterval(loadData, 30000)
+  loadMembers()
+  refreshTimer = setInterval(loadData, 30000)
+})
+onUnmounted(() => {
+  if (refreshTimer) {
+    clearInterval(refreshTimer)
+    refreshTimer = null
+  }
 })
 </script>
 
@@ -639,7 +705,7 @@ onMounted(() => {
             <div class="info-item" v-if="getRoomOrder(room.id!)">
               <span class="label">费用：</span>
               <span class="value amount">
-                ¥{{ calculateAmount(room.hourlyRate, getUsedDuration(getRoomOrder(room.id!)!.startTime)).toFixed(1) }}
+                ¥{{ calculateAmount(getRoomOrder(room.id!)!.hourlyRate || room.hourlyRate, getUsedDuration(getRoomOrder(room.id!)!.startTime)).toFixed(1) }}
               </span>
             </div>
           </template>
@@ -651,7 +717,7 @@ onMounted(() => {
             <el-button
               type="primary"
               size="default"
-              @click="openOrder(room)"
+              @click.stop="openOrder(room)"
               style="flex: 1"
             >
               开单
@@ -659,7 +725,7 @@ onMounted(() => {
             <el-button
               type="warning"
               size="default"
-              @click="setMaintenance(room)"
+              @click.stop="setMaintenance(room)"
               style="flex: 1"
             >
               维护
@@ -671,7 +737,7 @@ onMounted(() => {
             v-else-if="room.status === 'occupied'"
             type="success"
             size="default"
-            @click="openCheckout(room)"
+            @click.stop="openCheckout(room)"
             style="width: 100%"
           >
             结账
@@ -682,7 +748,7 @@ onMounted(() => {
             v-else-if="room.status === 'maintenance'"
             type="success"
             size="default"
-            @click="endMaintenance(room)"
+            @click.stop="endMaintenance(room)"
             style="width: 100%"
           >
             结束维护
@@ -753,13 +819,34 @@ onMounted(() => {
           </div>
         </el-form-item>
 
-        <el-form-item label="会员ID">
-          <el-input-number
+        <el-form-item label="关联会员">
+          <el-select
             v-model="orderForm.memberId"
-            :min="1"
-            placeholder="选填"
+            filterable
+            clearable
+            placeholder="输入姓名或手机号搜索"
             style="width: 100%"
-          />
+            @change="onMemberChange"
+          >
+            <el-option
+              v-for="member in allMembers"
+              :key="member.id"
+              :label="`${member.name} (${member.phone})`"
+              :value="member.id"
+            >
+              <div style="display: flex; justify-content: space-between; align-items: center;">
+                <span>{{ member.name }} <span style="color: #909399;">{{ member.phone }}</span></span>
+                <span style="color: #e6a23c; font-size: 12px;">余额 ¥{{ member.balance.toFixed(1) }}</span>
+              </div>
+            </el-option>
+          </el-select>
+          <div v-if="selectedMember" style="margin-top: 8px; padding: 8px 12px; background: var(--bg-muted); border-radius: var(--radius-sm); font-size: 13px;">
+            <div>会员：<strong>{{ selectedMember.name }}</strong>（{{ selectedMember.phone }}）</div>
+            <div style="margin-top: 4px;">余额：<span style="color: #e6a23c; font-weight: 600;">¥{{ selectedMember.balance.toFixed(2) }}</span>
+              &nbsp;|&nbsp; 积分：{{ selectedMember.points }}
+              &nbsp;|&nbsp; 等级：{{ { normal: '普通', silver: '银卡', gold: '金卡', platinum: '白金' }[selectedMember.level] || selectedMember.level }}
+            </div>
+          </div>
         </el-form-item>
 
         <!-- 商品选择 -->
@@ -799,71 +886,89 @@ onMounted(() => {
     <el-dialog
       v-model="checkoutDialog"
       title="结账"
-      width="500px"
+      width="540px"
       :close-on-click-modal="false"
     >
-      <el-form :model="checkoutForm" label-width="100px" v-if="checkoutOrder">
-        <el-form-item label="开始时间">
-          <el-input :value="new Date(checkoutOrder.startTime).toLocaleString()" disabled />
-        </el-form-item>
-
-        <el-form-item label="使用时长">
-          <el-input :value="formatDuration(getUsedDuration(checkoutOrder.startTime))" disabled />
-        </el-form-item>
-
-        <!-- 商品明细 -->
-        <el-form-item label="商品明细" v-if="checkoutProductSales.length > 0">
-          <div class="checkout-products">
-            <div v-for="sale in checkoutProductSales" :key="sale.id" class="checkout-product-item">
-              <span class="product-name">{{ sale.productName }}</span>
-              <span class="product-quantity">x{{ sale.quantity }}</span>
-              <span class="product-amount">¥{{ sale.amount.toFixed(1) }}</span>
-            </div>
-            <el-divider style="margin: 8px 0" />
-            <div class="checkout-product-total">
-              <span>商品小计：</span>
-              <span class="amount">¥{{ checkoutProductSales.reduce((sum, s) => sum + s.amount, 0).toFixed(1) }}</span>
-            </div>
+      <div v-if="checkoutOrder" class="checkout-detail">
+        <div class="checkout-section">
+          <div class="checkout-section-title">时间信息</div>
+          <div class="checkout-row">
+            <span class="checkout-label">开始时间</span>
+            <span class="checkout-value">{{ new Date(checkoutOrder.startTime).toLocaleString() }}</span>
           </div>
-        </el-form-item>
+          <div class="checkout-row">
+            <span class="checkout-label">使用时长</span>
+            <span class="checkout-value highlight-blue">{{ formatDuration(getUsedDuration(checkoutOrder.startTime)) }}</span>
+          </div>
+          <div class="checkout-row">
+            <span class="checkout-label">计费费率</span>
+            <span class="checkout-value">¥{{ (checkoutOrder.hourlyRate || checkoutRoom?.hourlyRate || 0).toFixed(1) }}/小时</span>
+          </div>
+        </div>
 
-        <el-form-item label="应收金额">
-          <div class="checkout-amount">¥{{ checkoutForm.actualAmount.toFixed(1) }}</div>
-        </el-form-item>
+        <div class="checkout-section">
+          <div class="checkout-section-title">费用明细</div>
+          <div class="checkout-row">
+            <span class="checkout-label">房费</span>
+            <span class="checkout-value">¥{{ checkoutRoomFee.toFixed(1) }}</span>
+          </div>
+          <template v-if="checkoutProductSales.length > 0">
+            <div v-for="sale in checkoutProductSales" :key="sale.id" class="checkout-row sub-item">
+              <span class="checkout-label">{{ sale.productName }} x{{ sale.quantity }}</span>
+              <span class="checkout-value">¥{{ sale.amount.toFixed(1) }}</span>
+            </div>
+            <div class="checkout-row">
+              <span class="checkout-label">商品费小计</span>
+              <span class="checkout-value">¥{{ checkoutProductsFee.toFixed(1) }}</span>
+            </div>
+          </template>
+          <div class="checkout-row total-row">
+            <span class="checkout-label">总计</span>
+            <span class="checkout-value highlight-red">¥{{ checkoutTotalAmount.toFixed(1) }}</span>
+          </div>
+        </div>
 
-        <el-form-item label="已预付">
-          <div class="prepaid-amount">¥{{ checkoutOrder.prepaidAmount.toFixed(1) }}</div>
-        </el-form-item>
-
-        <el-form-item label="差额">
-          <div class="difference-amount">
-            <el-tag :type="differenceType" size="large">
-              {{ differenceText }}：¥{{ Math.abs(checkoutDifference).toFixed(1) }}
+        <div class="checkout-section">
+          <div class="checkout-section-title">支付信息</div>
+          <div class="checkout-row">
+            <span class="checkout-label">已预付</span>
+            <span class="checkout-value highlight-green">¥{{ checkoutOrder.prepaidAmount.toFixed(1) }}</span>
+          </div>
+          <div class="checkout-row">
+            <span class="checkout-label">{{ differenceText }}</span>
+            <el-tag :type="differenceType" size="default">
+              ¥{{ Math.abs(checkoutDifference).toFixed(1) }}
             </el-tag>
           </div>
-        </el-form-item>
 
-        <el-form-item label="实收金额">
-          <el-input-number
-            v-model="checkoutForm.actualAmount"
-            :min="0"
-            :precision="1"
-            :step="1"
-            style="width: 100%"
-          />
-        </el-form-item>
+          <div v-if="checkoutMember" class="checkout-row member-info-row">
+            <span class="checkout-label">关联会员</span>
+            <span class="checkout-value">{{ checkoutMember.name }}（余额 ¥{{ checkoutMember.balance.toFixed(1) }}）</span>
+          </div>
+        </div>
 
-        <el-form-item label="支付方式">
-          <el-select v-model="checkoutForm.paymentMethod" style="width: 100%">
-            <el-option
-              v-for="item in paymentMethods"
-              :key="item.value"
-              :label="item.label"
-              :value="item.value"
+        <el-form label-width="100px" style="margin-top: 16px;">
+          <el-form-item label="实收金额">
+            <el-input-number
+              v-model="checkoutForm.actualAmount"
+              :min="0"
+              :precision="1"
+              :step="1"
+              style="width: 100%"
             />
-          </el-select>
-        </el-form-item>
-      </el-form>
+          </el-form-item>
+          <el-form-item label="支付方式">
+            <el-select v-model="checkoutForm.paymentMethod" style="width: 100%">
+              <el-option
+                v-for="item in paymentMethods"
+                :key="item.value"
+                :label="item.label"
+                :value="item.value"
+              />
+            </el-select>
+          </el-form-item>
+        </el-form>
+      </div>
 
       <template #footer>
         <el-button @click="checkoutDialog = false">取消</el-button>
@@ -907,8 +1012,11 @@ onMounted(() => {
           <el-descriptions-item label="使用时长">
             {{ formatDuration(getUsedDuration(detailOrder.startTime)) }}
           </el-descriptions-item>
+          <el-descriptions-item label="费率">
+            ¥{{ (detailOrder.hourlyRate || detailRoom.hourlyRate).toFixed(1) }}/小时
+          </el-descriptions-item>
           <el-descriptions-item label="当前费用">
-            ¥{{ calculateAmount(detailRoom.hourlyRate, getUsedDuration(detailOrder.startTime)).toFixed(1) }}
+            ¥{{ calculateAmount(detailOrder.hourlyRate || detailRoom.hourlyRate, getUsedDuration(detailOrder.startTime)).toFixed(1) }}
           </el-descriptions-item>
           <el-descriptions-item label="预付金额">
             ¥{{ detailOrder.prepaidAmount.toFixed(1) }}
@@ -981,6 +1089,14 @@ onMounted(() => {
           确认添加商品
         </el-button>
         <el-button
+          v-if="detailOrder"
+          type="danger"
+          plain
+          @click="cancelOrder(detailOrder)"
+        >
+          取消订单
+        </el-button>
+        <el-button
           v-if="detailRoom?.status === 'occupied'"
           type="success"
           @click="roomDetailDialog = false; openCheckout(detailRoom)"
@@ -1048,7 +1164,7 @@ onMounted(() => {
               <div v-if="isProductSelected(product.id!)" class="quantity-control" @click.stop>
                 <el-input-number
                   :model-value="getProductQuantity(product.id!)"
-                  @update:model-value="(val) => updateProductQuantity(product.id!, val)"
+                  @update:model-value="(val: number) => updateProductQuantity(product.id!, val)"
                   :min="1"
                   :max="product.isUnlimitedStock ? 999 : product.stock"
                   size="small"
@@ -1129,7 +1245,7 @@ onMounted(() => {
               <div v-if="isDetailProductSelected(product.id!)" class="quantity-control" @click.stop>
                 <el-input-number
                   :model-value="getDetailProductQuantity(product.id!)"
-                  @update:model-value="(val) => updateDetailProductQuantity(product.id!, val)"
+                  @update:model-value="(val: number) => updateDetailProductQuantity(product.id!, val)"
                   :min="1"
                   :max="product.isUnlimitedStock ? 999 : product.stock"
                   size="small"
@@ -1163,7 +1279,7 @@ onMounted(() => {
 
 <style scoped>
 .hall {
-  padding: 24px;
+  padding: 28px;
   min-height: 100vh;
 }
 
@@ -1171,14 +1287,20 @@ onMounted(() => {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 24px;
+  margin-bottom: 28px;
+  padding: 20px 24px;
+  background: var(--bg-card);
+  border-radius: var(--radius-md);
+  box-shadow: var(--shadow-sm);
+  transition: background-color var(--transition-normal), box-shadow var(--transition-normal);
 }
 
 .page-title {
-  font-size: 24px;
-  font-weight: 600;
-  color: #303133;
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--text-primary);
   margin: 0;
+  letter-spacing: -0.02em;
 }
 
 .room-grid {
@@ -1188,41 +1310,43 @@ onMounted(() => {
 }
 
 .room-card {
-  transition: all 0.3s;
-  border: 2px solid transparent;
+  transition: all var(--transition-normal);
+  border: 1px solid var(--border-light);
+  border-left: 4px solid var(--border-color);
+  overflow: hidden;
 }
 
 .room-card.status-available {
-  border-color: #67c23a;
+  border-left-color: #67c23a;
 }
 
 .room-card.status-occupied {
-  border-color: #e6a23c;
-  background: #fdf6ec;
+  border-left-color: #e6a23c;
 }
 
 .room-card.status-maintenance {
-  border-color: #f56c6c;
-  background: #fef0f0;
+  border-left-color: #f56c6c;
 }
 
 .room-card:hover {
-  transform: translateY(-4px);
+  transform: translateY(-3px);
+  box-shadow: var(--shadow-lg);
 }
 
 .room-header {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  margin-bottom: 16px;
+  margin-bottom: 14px;
   padding-bottom: 12px;
-  border-bottom: 1px solid #ebeef5;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .room-name {
-  font-size: 20px;
-  font-weight: 600;
-  color: #303133;
+  font-size: 18px;
+  font-weight: 700;
+  color: var(--text-primary);
+  letter-spacing: -0.01em;
 }
 
 .room-info {
@@ -1232,25 +1356,25 @@ onMounted(() => {
 .info-item {
   display: flex;
   align-items: center;
-  margin-bottom: 8px;
-  font-size: 14px;
+  margin-bottom: 6px;
+  font-size: 13px;
 }
 
 .info-item .label {
-  color: #909399;
+  color: var(--text-secondary);
   margin-right: 8px;
   min-width: 50px;
 }
 
 .info-item .value {
-  color: #606266;
+  color: var(--text-regular);
   font-weight: 500;
 }
 
 .info-item .price {
   color: #f56c6c;
-  font-size: 16px;
-  font-weight: 600;
+  font-size: 15px;
+  font-weight: 700;
 }
 
 .info-item .duration {
@@ -1260,13 +1384,14 @@ onMounted(() => {
 
 .info-item .amount {
   color: #e6a23c;
-  font-size: 18px;
-  font-weight: 600;
+  font-size: 17px;
+  font-weight: 700;
 }
 
 .room-actions {
   display: flex;
   gap: 8px;
+  padding-top: 4px;
 }
 
 .empty-state {
@@ -1297,7 +1422,7 @@ onMounted(() => {
 
 .original-rate {
   font-size: 16px;
-  color: #909399;
+  color: var(--text-secondary);
   text-decoration: line-through;
 }
 
@@ -1317,7 +1442,7 @@ onMounted(() => {
   align-items: center;
   justify-content: space-between;
   padding: 8px 0;
-  border-bottom: 1px solid #f0f0f0;
+  border-bottom: 1px solid var(--border-light);
 }
 
 .product-item:last-child {
@@ -1327,7 +1452,7 @@ onMounted(() => {
 .product-name {
   flex: 1;
   font-size: 14px;
-  color: #606266;
+  color: var(--text-regular);
 }
 
 .product-price {
@@ -1354,9 +1479,9 @@ onMounted(() => {
 /* 结账商品明细样式 */
 .checkout-products {
   width: 100%;
-  background: #f5f7fa;
+  background: var(--bg-muted);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .checkout-product-item {
@@ -1369,11 +1494,11 @@ onMounted(() => {
 
 .checkout-product-item .product-name {
   flex: 1;
-  color: #606266;
+  color: var(--text-regular);
 }
 
 .checkout-product-item .product-quantity {
-  color: #909399;
+  color: var(--text-secondary);
   margin: 0 12px;
 }
 
@@ -1388,7 +1513,7 @@ onMounted(() => {
   align-items: center;
   font-size: 15px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
 }
 
 .checkout-product-total .amount {
@@ -1409,7 +1534,7 @@ onMounted(() => {
 .category-title {
   font-size: 16px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 12px;
   padding-bottom: 8px;
   border-bottom: 2px solid #409eff;
@@ -1423,23 +1548,23 @@ onMounted(() => {
 
 .product-card-dialog {
   position: relative;
-  border: 2px solid #dcdfe6;
-  border-radius: 8px;
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-md);
   padding: 12px;
   cursor: pointer;
-  transition: all 0.3s;
-  background: #fff;
+  transition: all var(--transition-normal);
+  background: var(--bg-card);
 }
 
 .product-card-dialog:hover {
   border-color: #409eff;
   transform: translateY(-2px);
-  box-shadow: 0 2px 12px rgba(64, 158, 255, 0.2);
+  box-shadow: var(--shadow-md);
 }
 
 .product-card-dialog.selected {
   border-color: #67c23a;
-  background: #f0f9ff;
+  background: var(--active-bg);
 }
 
 .product-image-dialog {
@@ -1448,8 +1573,8 @@ onMounted(() => {
   display: flex;
   align-items: center;
   justify-content: center;
-  background: #f5f7fa;
-  border-radius: 4px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
   margin-bottom: 8px;
   overflow: hidden;
 }
@@ -1465,7 +1590,7 @@ onMounted(() => {
   flex-direction: column;
   align-items: center;
   justify-content: center;
-  color: #c0c4cc;
+  color: var(--text-placeholder);
 }
 
 .product-info-dialog {
@@ -1475,7 +1600,7 @@ onMounted(() => {
 .product-name-dialog {
   font-size: 14px;
   font-weight: 600;
-  color: #303133;
+  color: var(--text-primary);
   margin-bottom: 4px;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -1491,7 +1616,7 @@ onMounted(() => {
 
 .product-stock-dialog {
   font-size: 12px;
-  color: #909399;
+  color: var(--text-secondary);
 }
 
 .product-stock-dialog.unlimited {
@@ -1517,7 +1642,7 @@ onMounted(() => {
 }
 
 .dialog-footer-summary {
-  border-top: 1px solid #ebeef5;
+  border-top: 1px solid var(--border-light);
   padding-top: 16px;
   margin-top: 16px;
 }
@@ -1538,9 +1663,9 @@ onMounted(() => {
 /* 已选商品摘要样式 */
 .selected-products-summary {
   width: 100%;
-  background: #f5f7fa;
+  background: var(--bg-muted);
   padding: 12px;
-  border-radius: 4px;
+  border-radius: var(--radius-sm);
 }
 
 .summary-item {
@@ -1553,16 +1678,85 @@ onMounted(() => {
 
 .summary-item .product-name {
   flex: 1;
-  color: #606266;
+  color: var(--text-regular);
 }
 
 .summary-item .product-quantity {
-  color: #909399;
+  color: var(--text-secondary);
   margin: 0 12px;
 }
 
 .summary-item .product-price {
   color: #f56c6c;
   font-weight: 600;
+}
+
+/* 结账明细样式 */
+.checkout-detail {
+  font-size: 14px;
+}
+
+.checkout-section {
+  margin-bottom: 16px;
+  padding: 14px 16px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-sm);
+}
+
+.checkout-section-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  text-transform: uppercase;
+  letter-spacing: 0.05em;
+}
+
+.checkout-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 5px 0;
+}
+
+.checkout-row.sub-item {
+  padding-left: 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.checkout-row.total-row {
+  border-top: 1px solid var(--border-light);
+  margin-top: 6px;
+  padding-top: 10px;
+  font-weight: 700;
+  font-size: 16px;
+}
+
+.checkout-label {
+  color: var(--text-regular);
+}
+
+.checkout-value {
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.checkout-value.highlight-red {
+  color: #f56c6c;
+  font-size: 18px;
+}
+
+.checkout-value.highlight-green {
+  color: #67c23a;
+}
+
+.checkout-value.highlight-blue {
+  color: #409eff;
+}
+
+.member-info-row {
+  margin-top: 4px;
+  font-size: 13px;
 }
 </style>
