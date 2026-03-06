@@ -37,7 +37,8 @@
   },
   "build": {
     "appId": "com.chessroom.manager",
-    "productName": "棋牌室管理系统",
+    "electronDist": "node_modules/electron/dist",
+    "productName": "ChessRoomManager",
     "directories": {
       "output": "release/${version}"
     },
@@ -50,6 +51,14 @@
       "target": [
         "nsis"
       ]
+    },
+    "nsis": {
+      "shortcutName": "棋牌室管理系统",
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "installerIcon": "build/icon.ico",
+      "uninstallerIcon": "build/icon.ico"
     },
     "mac": {
       "icon": "build/icon.icns",

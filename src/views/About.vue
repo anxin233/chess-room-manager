@@ -1,6 +1,4 @@
 <script setup lang="ts">
-import { ref } from 'vue'
-
 const techStack = [
   { name: 'Electron', version: '^33.2.0', description: '跨平台桌面应用框架' },
   { name: 'Vite', version: '^6.0.0', description: '下一代前端构建工具' },

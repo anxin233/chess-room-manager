@@ -1,7 +1,7 @@
 import { app, BrowserWindow, ipcMain, dialog, nativeImage, protocol, net } from 'electron'
 import { join, dirname } from 'path'
 import { fileURLToPath } from 'url'
-import { existsSync, mkdirSync, copyFileSync, readFileSync, writeFileSync } from 'fs'
+import { existsSync, mkdirSync, copyFileSync, writeFileSync } from 'fs'
 import { initDatabase, closeDatabase, getDatabasePath } from './database/index'
 import * as dbServices from './database/services'
 
@@ -50,7 +50,7 @@ const createWindow = () => {
   })
 
   // 监听 preload 脚本错误
-  mainWindow.webContents.on('preload-error', (event, preloadPath, error) => {
+  mainWindow.webContents.on('preload-error', (_event, _preloadPath, error) => {
     console.error('Preload script error:', error)
   })
 

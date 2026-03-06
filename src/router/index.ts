@@ -71,7 +71,7 @@ const router = createRouter({
 })
 
 // 路由守卫：设置页面标题
-router.beforeEach((to, from, next) => {
+router.beforeEach((to, _from, next) => {
   if (to.meta.title) {
     document.title = `${to.meta.title} - 棋牌室管理系统`
   }

@@ -764,67 +764,77 @@ onUnmounted(() => {
     <!-- 开单对话框 -->
     <el-dialog
       v-model="openOrderDialog"
-      title="开单"
-      width="500px"
+      width="520px"
       :close-on-click-modal="false"
+      :show-close="true"
+      class="order-dialog"
     >
-      <el-form :model="orderForm" label-width="100px">
-        <el-form-item label="房间">
-          <el-input :value="selectedRoom?.name" disabled />
-        </el-form-item>
-
-        <el-form-item label="原始费率">
-          <div class="original-rate">¥{{ selectedRoom?.hourlyRate.toFixed(1) }}/小时</div>
-        </el-form-item>
-
-        <el-form-item label="实际费率">
-          <el-input-number
-            v-model="orderForm.hourlyRate"
-            :min="0"
-            :precision="1"
-            :step="1"
-            style="width: 100%"
-          />
-          <div v-if="discount" class="discount-info">
-            <el-tag type="success" size="small">{{ discount }} 折扣</el-tag>
-            <span style="margin-left: 8px; color: #67c23a;">优惠 ¥{{ discountAmount.toFixed(1) }}</span>
+      <template #header>
+        <div class="od-header">
+          <div class="od-room-badge">{{ selectedRoom?.name }}</div>
+          <div class="od-header-meta">
+            <span class="od-room-type">{{ selectedRoom?.type }}</span>
+            <span class="od-room-rate">¥{{ selectedRoom?.hourlyRate.toFixed(1) }}/小时</span>
           </div>
-        </el-form-item>
+        </div>
+      </template>
 
-        <el-form-item label="预估时长">
-          <el-input-number
-            v-model="orderForm.estimatedHours"
-            :min="0.5"
-            :max="24"
-            :step="0.5"
-            style="width: 100%"
-          />
-          <span style="margin-left: 8px; color: #909399;">小时</span>
-        </el-form-item>
+      <div class="od-body">
+        <!-- 费率与时长 -->
+        <div class="od-section">
+          <div class="od-section-label">计费设置</div>
+          <div class="od-rate-grid">
+            <div class="od-field">
+              <label class="od-field-label">实际费率 (¥/小时)</label>
+              <el-input-number
+                v-model="orderForm.hourlyRate"
+                :min="0"
+                :precision="1"
+                :step="1"
+                controls-position="right"
+                style="width: 100%"
+              />
+              <div v-if="discount" class="od-discount-tag">
+                <span class="od-discount-badge">{{ discount }}</span>
+                <span class="od-discount-save">省 ¥{{ discountAmount.toFixed(1) }}</span>
+              </div>
+            </div>
+            <div class="od-field">
+              <label class="od-field-label">预估时长 (小时)</label>
+              <el-input-number
+                v-model="orderForm.estimatedHours"
+                :min="0.5"
+                :max="24"
+                :step="0.5"
+                controls-position="right"
+                style="width: 100%"
+              />
+            </div>
+          </div>
+        </div>
 
-        <el-form-item label="预估费用">
-          <div class="estimated-amount">¥{{ estimatedAmount.toFixed(1) }}</div>
-        </el-form-item>
-
-        <el-form-item label="预付金额">
+        <!-- 预付金额 -->
+        <div class="od-section">
+          <div class="od-section-label">预付金额</div>
           <el-input-number
             v-model="orderForm.prepaidAmount"
             :min="0"
             :precision="1"
             :step="10"
+            controls-position="right"
             style="width: 100%"
           />
-          <div style="margin-top: 8px; font-size: 12px; color: #909399;">
-            建议预付预估费用，结账时多退少补
-          </div>
-        </el-form-item>
+          <div class="od-hint">建议预付预估费用，结账时多退少补</div>
+        </div>
 
-        <el-form-item label="关联会员">
+        <!-- 关联会员 -->
+        <div class="od-section">
+          <div class="od-section-label">关联会员 <span class="od-optional">选填</span></div>
           <el-select
             v-model="orderForm.memberId"
             filterable
             clearable
-            placeholder="输入姓名或手机号搜索"
+            placeholder="搜索姓名或手机号"
             style="width: 100%"
             @change="onMemberChange"
           >
@@ -835,50 +845,66 @@ onUnmounted(() => {
               :value="member.id"
             >
               <div style="display: flex; justify-content: space-between; align-items: center;">
-                <span>{{ member.name }} <span style="color: #909399;">{{ member.phone }}</span></span>
-                <span style="color: #e6a23c; font-size: 12px;">余额 ¥{{ member.balance.toFixed(1) }}</span>
+                <span>{{ member.name }} <span style="color: var(--text-placeholder);">{{ member.phone }}</span></span>
+                <span style="color: #e6a23c; font-size: 12px;">¥{{ member.balance.toFixed(1) }}</span>
               </div>
             </el-option>
           </el-select>
-          <div v-if="selectedMember" style="margin-top: 8px; padding: 8px 12px; background: var(--bg-muted); border-radius: var(--radius-sm); font-size: 13px;">
-            <div>会员：<strong>{{ selectedMember.name }}</strong>（{{ selectedMember.phone }}）</div>
-            <div style="margin-top: 4px;">余额：<span style="color: #e6a23c; font-weight: 600;">¥{{ selectedMember.balance.toFixed(2) }}</span>
-              &nbsp;|&nbsp; 积分：{{ selectedMember.points }}
-              &nbsp;|&nbsp; 等级：{{ { normal: '普通', silver: '银卡', gold: '金卡', platinum: '白金' }[selectedMember.level] || selectedMember.level }}
+          <div v-if="selectedMember" class="od-member-card">
+            <div class="od-member-name">{{ selectedMember.name }}</div>
+            <div class="od-member-details">
+              <span>{{ selectedMember.phone }}</span>
+              <span class="od-member-balance">¥{{ selectedMember.balance.toFixed(2) }}</span>
+              <span>{{ selectedMember.points }} 积分</span>
             </div>
           </div>
-        </el-form-item>
+        </div>
 
-        <!-- 商品选择 -->
-        <el-divider>添加商品</el-divider>
+        <!-- 商品 -->
+        <div class="od-section">
+          <div class="od-section-label">添加商品 <span class="od-optional">选填</span></div>
+          <div
+            class="od-product-trigger"
+            @click="openProductSelect"
+          >
+            <span v-if="selectedProducts.length === 0" class="od-product-trigger-text">点击选择商品</span>
+            <span v-else class="od-product-trigger-text active">已选 {{ selectedProducts.length }} 种商品</span>
+            <span class="od-product-trigger-arrow">›</span>
+          </div>
 
-        <el-form-item label="选择商品">
-          <el-button type="primary" @click="openProductSelect" style="width: 100%">
-            选择商品 (已选 {{ selectedProducts.length }} 件)
-          </el-button>
-        </el-form-item>
-
-        <el-form-item label="已选商品" v-if="selectedProducts.length > 0">
-          <div class="selected-products-summary">
-            <div v-for="(item, index) in selectedProducts" :key="index" class="summary-item">
-              <span class="product-name">{{ item.product.name }}</span>
-              <span class="product-quantity">x{{ item.quantity }}</span>
-              <span class="product-price">¥{{ (item.product.price * item.quantity).toFixed(1) }}</span>
-            </div>
-            <el-divider />
-            <div class="products-total">
-              <span>商品小计：</span>
-              <span class="total-amount">¥{{ getProductsTotal.toFixed(1) }}</span>
+          <div v-if="selectedProducts.length > 0" class="od-product-list">
+            <div v-for="(item, index) in selectedProducts" :key="index" class="od-product-row">
+              <span class="od-product-name">{{ item.product.name }}</span>
+              <span class="od-product-qty">x{{ item.quantity }}</span>
+              <span class="od-product-price">¥{{ (item.product.price * item.quantity).toFixed(1) }}</span>
             </div>
           </div>
-        </el-form-item>
-      </el-form>
+        </div>
+      </div>
+
+      <!-- 底部汇总栏 -->
+      <div class="od-summary">
+        <div class="od-summary-row">
+          <span>预估房费</span>
+          <span>¥{{ estimatedAmount.toFixed(1) }}</span>
+        </div>
+        <div v-if="selectedProducts.length > 0" class="od-summary-row">
+          <span>商品费用</span>
+          <span>¥{{ getProductsTotal.toFixed(1) }}</span>
+        </div>
+        <div class="od-summary-row total">
+          <span>预估总计</span>
+          <span class="od-summary-price">¥{{ (estimatedAmount + getProductsTotal).toFixed(1) }}</span>
+        </div>
+      </div>
 
       <template #footer>
-        <el-button @click="openOrderDialog = false">取消</el-button>
-        <el-button type="primary" :loading="loading" @click="confirmOpenOrder">
-          确认开单
-        </el-button>
+        <div class="od-footer">
+          <el-button @click="openOrderDialog = false" size="large" style="min-width: 100px;">取消</el-button>
+          <el-button type="primary" :loading="loading" @click="confirmOpenOrder" size="large" style="min-width: 160px;">
+            确认开单
+          </el-button>
+        </div>
       </template>
     </el-dialog>
 
@@ -1402,34 +1428,247 @@ onUnmounted(() => {
   min-height: 400px;
 }
 
-.estimated-amount,
-.checkout-amount {
-  font-size: 24px;
-  font-weight: 600;
-  color: #f56c6c;
-}
-
-.prepaid-amount {
-  font-size: 20px;
-  font-weight: 600;
-  color: #67c23a;
-}
-
-.difference-amount {
-  font-size: 18px;
-  font-weight: 600;
-}
-
-.original-rate {
-  font-size: 16px;
-  color: var(--text-secondary);
-  text-decoration: line-through;
-}
-
-.discount-info {
-  margin-top: 8px;
+/* ==================== 开单弹窗样式 ==================== */
+.od-header {
   display: flex;
   align-items: center;
+  gap: 14px;
+}
+
+.od-room-badge {
+  background: linear-gradient(135deg, #409eff, #337ecc);
+  color: #fff;
+  font-size: 18px;
+  font-weight: 700;
+  padding: 8px 18px;
+  border-radius: 10px;
+  letter-spacing: 0.02em;
+}
+
+.od-header-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.od-room-type {
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.od-room-rate {
+  font-size: 15px;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.od-body {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.od-section {
+  padding: 14px 16px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+}
+
+.od-section-label {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--text-secondary);
+  margin-bottom: 10px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.od-optional {
+  font-size: 11px;
+  font-weight: 400;
+  color: var(--text-placeholder);
+  background: var(--border-light);
+  padding: 1px 6px;
+  border-radius: 4px;
+}
+
+.od-field-label {
+  display: block;
+  font-size: 12px;
+  color: var(--text-secondary);
+  margin-bottom: 6px;
+}
+
+.od-rate-grid {
+  display: grid;
+  grid-template-columns: 1fr 1fr;
+  gap: 12px;
+}
+
+.od-discount-tag {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.od-discount-badge {
+  background: #f0f9eb;
+  color: #67c23a;
+  font-size: 12px;
+  font-weight: 600;
+  padding: 2px 8px;
+  border-radius: 4px;
+}
+
+html.dark .od-discount-badge {
+  background: rgba(103, 194, 58, 0.15);
+}
+
+.od-discount-save {
+  font-size: 12px;
+  color: #67c23a;
+  font-weight: 500;
+}
+
+.od-hint {
+  font-size: 12px;
+  color: var(--text-placeholder);
+  margin-top: 6px;
+}
+
+.od-member-card {
+  margin-top: 8px;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px solid var(--border-light);
+  border-radius: var(--radius-sm);
+}
+
+.od-member-name {
+  font-size: 14px;
+  font-weight: 600;
+  color: var(--text-primary);
+  margin-bottom: 4px;
+}
+
+.od-member-details {
+  display: flex;
+  gap: 12px;
+  font-size: 12px;
+  color: var(--text-secondary);
+}
+
+.od-member-balance {
+  color: #e6a23c;
+  font-weight: 600;
+}
+
+.od-product-trigger {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 10px 14px;
+  background: var(--bg-card);
+  border: 1px dashed var(--border-color);
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  transition: all var(--transition-fast);
+}
+
+.od-product-trigger:hover {
+  border-color: #409eff;
+  background: var(--active-bg);
+}
+
+.od-product-trigger-text {
+  font-size: 14px;
+  color: var(--text-placeholder);
+}
+
+.od-product-trigger-text.active {
+  color: #409eff;
+  font-weight: 500;
+}
+
+.od-product-trigger-arrow {
+  font-size: 20px;
+  color: var(--text-placeholder);
+  font-weight: 300;
+}
+
+.od-product-list {
+  margin-top: 10px;
+}
+
+.od-product-row {
+  display: flex;
+  align-items: center;
+  padding: 6px 0;
+  font-size: 13px;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.od-product-row:last-child {
+  border-bottom: none;
+}
+
+.od-product-name {
+  flex: 1;
+  color: var(--text-regular);
+}
+
+.od-product-qty {
+  color: var(--text-secondary);
+  margin: 0 12px;
+  min-width: 30px;
+  text-align: center;
+}
+
+.od-product-price {
+  color: var(--text-primary);
+  font-weight: 600;
+  min-width: 60px;
+  text-align: right;
+}
+
+.od-summary {
+  margin: 12px 0 0;
+  padding: 14px 16px;
+  background: var(--bg-muted);
+  border-radius: var(--radius-md);
+  border: 1px solid var(--border-light);
+}
+
+.od-summary-row {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 4px 0;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.od-summary-row.total {
+  border-top: 1px solid var(--border-light);
+  margin-top: 6px;
+  padding-top: 10px;
+  font-size: 16px;
+  font-weight: 700;
+  color: var(--text-primary);
+}
+
+.od-summary-price {
+  color: #f56c6c;
+  font-size: 22px;
+  font-weight: 700;
+}
+
+.od-footer {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
 }
 
 /* 商品选择样式 */
@@ -1758,5 +1997,22 @@ onUnmounted(() => {
 .member-info-row {
   margin-top: 4px;
   font-size: 13px;
+}
+</style>
+
+<style>
+.order-dialog .el-dialog__header {
+  padding: 20px 24px 16px;
+  margin-right: 0;
+  border-bottom: 1px solid var(--border-light);
+}
+
+.order-dialog .el-dialog__body {
+  padding: 16px 24px;
+}
+
+.order-dialog .el-dialog__footer {
+  padding: 12px 24px 20px;
+  border-top: 1px solid var(--border-light);
 }
 </style>

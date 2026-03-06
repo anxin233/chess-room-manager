@@ -1,11 +1,6 @@
 import { defineStore } from 'pinia'
 import { ref } from 'vue'
 
-interface CounterState {
-  count: number
-  history: number[]
-}
-
 export const useCounterStore = defineStore('counter', () => {
   // 状态
   const count = ref(0)

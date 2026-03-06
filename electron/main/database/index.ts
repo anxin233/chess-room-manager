@@ -56,7 +56,7 @@ export function initDatabase() {
 }
 
 // 获取数据库实例
-export function getDatabase(): Database.Database {
+export function getDatabase(): any {
   if (!db) {
     if (!app.isReady()) {
       throw new Error('Database not initialized: app is not ready')

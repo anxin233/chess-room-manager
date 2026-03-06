@@ -566,21 +566,21 @@ onMounted(() => {
             </div>
             <div class="stat-item">
               <span class="stat-label">充值总额</span>
-              <span class="stat-value recharge">¥{{ getStats(selectedMember.id).totalRecharged.toFixed(1) }}</span>
+              <span class="stat-value recharge">¥{{ getStats(selectedMember.id!).totalRecharged.toFixed(1) }}</span>
             </div>
             <div class="stat-item">
               <span class="stat-label">到账总额</span>
-              <span class="stat-value received">¥{{ getStats(selectedMember.id).totalReceived.toFixed(1) }}</span>
+              <span class="stat-value received">¥{{ getStats(selectedMember.id!).totalReceived.toFixed(1) }}</span>
             </div>
             <div class="stat-item">
               <span class="stat-label">消费总额</span>
-              <span class="stat-value spent">¥{{ getStats(selectedMember.id).totalSpent.toFixed(1) }}</span>
+              <span class="stat-value spent">¥{{ getStats(selectedMember.id!).totalSpent.toFixed(1) }}</span>
             </div>
             <div class="stat-item">
               <span class="stat-label">折扣率</span>
               <span class="stat-value discount">
-                <el-tag v-if="getStats(selectedMember.id).discountRate > 0" type="success" size="small">
-                  {{ getStats(selectedMember.id).discountRate.toFixed(1) }}%
+                <el-tag v-if="getStats(selectedMember.id!).discountRate > 0" type="success" size="small">
+                  {{ getStats(selectedMember.id!).discountRate.toFixed(1) }}%
                 </el-tag>
                 <span v-else style="color: #909399;">-</span>
               </span>

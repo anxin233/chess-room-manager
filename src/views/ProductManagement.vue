@@ -90,12 +90,6 @@ const getStockStatus = (product: Product) => {
   return { type: 'success', text: '库存充足' }
 }
 
-// 获取分类名称
-const getCategoryName = (categoryId: number) => {
-  const category = categories.value.find(c => c.id === categoryId)
-  return category?.name || '未分类'
-}
-
 // 加载商品分类
 const loadCategories = async () => {
   loading.value = true
@@ -167,7 +161,7 @@ const openAddCategoryDialog = () => {
 const openEditCategoryDialog = (category: ProductCategory) => {
   categoryDialogTitle.value = '编辑分类'
   isCategoryEdit.value = true
-  categoryFormData.value = { ...category }
+  categoryFormData.value = { id: category.id, name: category.name, sortOrder: category.sortOrder }
   categoryDialogVisible.value = true
 }
 

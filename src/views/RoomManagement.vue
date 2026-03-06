@@ -29,13 +29,6 @@ const roomTypes = [
   { label: '包厢', value: '包厢' }
 ]
 
-// 状态选项
-const statusOptions = [
-  { label: '空闲', value: 'available' },
-  { label: '使用中', value: 'occupied' },
-  { label: '维护中', value: 'maintenance' }
-]
-
 // 状态标签类型
 const getStatusType = (status: string) => {
   const map: Record<string, 'success' | 'warning' | 'danger'> = {

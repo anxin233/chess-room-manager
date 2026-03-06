@@ -3,6 +3,7 @@ import { onMounted } from 'vue'
 import { useCounterStore } from '@/stores/counter'
 import { useAppStore } from '@/stores/app'
 import { ElMessage } from 'element-plus'
+import { Minus, Plus, RefreshLeft } from '@element-plus/icons-vue'
 
 const counterStore = useCounterStore()
 const appStore = useAppStore()
